@@ -12,7 +12,11 @@ export default defineEventHandler(async (event) => {
     `--skip=${skip}`,
     '--format=%H%x01%an%x01%ae%x01%aI%x01%s',
   ]
-  if (range) args.push(...range.split(/\s+/))
+  if (range) {
+    const tokens = range.split(/\s+/).filter(Boolean)
+    assertRangeTokens(tokens)
+    args.push(...tokens)
+  }
 
   let raw = ''
   try {

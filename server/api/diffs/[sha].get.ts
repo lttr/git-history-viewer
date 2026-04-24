@@ -32,8 +32,7 @@ function splitPatchByFile(raw: string): Map<string, string> {
 }
 
 export default defineEventHandler(async (event) => {
-  const sha = getRouterParam(event, 'sha')
-  if (!sha) throw createError({ statusCode: 400, message: 'sha required' })
+  const sha = assertSha(getRouterParam(event, 'sha'))
 
   const hit = cache.get(sha)
   if (hit) return hit

@@ -1,13 +1,37 @@
 import { simpleGit, type SimpleGit } from 'simple-git'
 
-let instance: SimpleGit | null = null
-
 export function useGit(): SimpleGit {
-  if (!instance) {
-    const cfg = useRuntimeConfig()
-    instance = simpleGit(cfg.repoPath)
+  const cfg = useRuntimeConfig()
+  return simpleGit(cfg.repoPath)
+}
+
+const SHA_RE = /^[0-9a-f]{4,64}$/i
+export function assertSha(sha: string | undefined | null): string {
+  if (!sha || !SHA_RE.test(sha)) {
+    throw createError({ statusCode: 400, message: 'invalid sha' })
   }
-  return instance
+  return sha
+}
+
+export function assertPath(p: string | undefined | null): string {
+  if (typeof p !== 'string' || !p.length || p.startsWith('-')) {
+    throw createError({ statusCode: 400, message: 'invalid path' })
+  }
+  return p
+}
+
+const RANGE_TOKEN_RE = /^[A-Za-z0-9._/^~@{}=:+-]+$/
+export function assertRangeTokens(tokens: string[]): string[] {
+  for (const t of tokens) {
+    if (!t) continue
+    if (t.startsWith('-')) {
+      throw createError({ statusCode: 400, message: `invalid range token: ${t}` })
+    }
+    if (!RANGE_TOKEN_RE.test(t)) {
+      throw createError({ statusCode: 400, message: `invalid range token: ${t}` })
+    }
+  }
+  return tokens
 }
 
 export function parseNameStatus(raw: string): Array<{ path: string; status: string; oldPath?: string }> {

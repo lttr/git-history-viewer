@@ -38,6 +38,7 @@ export default defineEventHandler(async (event) => {
   const raw = typeof q.shas === 'string' ? q.shas : ''
   const shas = raw.split(',').map((s) => s.trim()).filter(Boolean)
   if (shas.length < 2) throw createError({ statusCode: 400, message: 'need >= 2 shas' })
+  for (const s of shas) assertSha(s)
 
   const git = useGit()
 
@@ -54,7 +55,15 @@ export default defineEventHandler(async (event) => {
   const hit = cache.get(cacheKey)
   if (hit) return hit
 
-  const base = `${from}^`
+  const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+  let base: string
+  try {
+    const parentsRaw = await git.raw(['rev-list', '--parents', '-n', '1', from])
+    const parents = parentsRaw.trim().split(' ').slice(1)
+    base = parents[0] || EMPTY_TREE
+  } catch {
+    base = EMPTY_TREE
+  }
 
   const [nameStatusRaw, patchRaw] = await Promise.all([
     git.raw(['diff', '--name-status', `${base}..${to}`]),

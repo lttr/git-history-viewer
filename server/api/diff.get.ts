@@ -1,8 +1,7 @@
 export default defineEventHandler(async (event) => {
   const q = getQuery(event)
-  const sha = String(q.sha ?? '')
-  const file = String(q.file ?? '')
-  if (!sha || !file) throw createError({ statusCode: 400, message: 'sha and file required' })
+  const sha = assertSha(typeof q.sha === 'string' ? q.sha : '')
+  const file = assertPath(typeof q.file === 'string' ? q.file : '')
   const git = useGit()
 
   const parents = (await git.raw(['rev-list', '--parents', '-n', '1', sha])).trim().split(' ')
