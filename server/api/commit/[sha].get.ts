@@ -1,31 +1,45 @@
+import { LRU } from '../../utils/cache'
+
+const cache = new LRU<any>(200)
+
 export default defineEventHandler(async (event) => {
   const sha = getRouterParam(event, 'sha')
   if (!sha) throw createError({ statusCode: 400, message: 'sha required' })
+
+  const hit = cache.get(sha)
+  if (hit) return hit
+
   const git = useGit()
 
-  const [showRaw, parentsRaw] = await Promise.all([
-    git.raw(['show', '--name-status', '--format=', '-m', '--first-parent', sha]),
-    git.raw(['rev-list', '--parents', '-n', '1', sha]),
-  ])
-
-  const files = parseNameStatus(showRaw)
-  const parents = parentsRaw.trim().split(' ').slice(1)
-
-  const meta = await git.show([
-    '--no-patch',
-    '--format=%H%n%an%n%ae%n%aI%n%s%n%b',
+  const combined = await git.raw([
+    'show',
+    '--name-status',
+    '-m',
+    '--first-parent',
+    '--format=%H%n%P%n%an%n%ae%n%aI%n%s%n%b%x00',
     sha,
   ])
-  const lines = meta.split('\n')
-  return {
-    hash: lines[0],
-    author: lines[1],
-    email: lines[2],
-    date: lines[3],
-    subject: lines[4],
-    body: lines.slice(5).join('\n').trim(),
+
+  const nullIdx = combined.indexOf('\x00')
+  const metaRaw = nullIdx === -1 ? combined : combined.slice(0, nullIdx)
+  const rest = nullIdx === -1 ? '' : combined.slice(nullIdx + 1)
+  const metaLines = metaRaw.split('\n')
+  const [hash, parentsLine, author, email, date, subject, ...bodyLines] = metaLines
+  const parents = (parentsLine || '').trim().split(' ').filter(Boolean)
+
+  const files = parseNameStatus(rest)
+
+  const payload = {
+    hash,
+    author,
+    email,
+    date,
+    subject,
+    body: bodyLines.join('\n').trim(),
     parents,
     isMerge: parents.length > 1,
     files,
   }
+  cache.set(sha, payload)
+  return payload
 })

@@ -1,8 +1,24 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 
 const store = useViewerStore()
+
+watch(
+  () => store.selectedSha,
+  (sha) => {
+    if (!sha) return
+    const idx = store.commits.findIndex((c) => c.hash === sha)
+    if (idx < 0) return
+    const neighbors = [
+      store.commits[idx + 1],
+      store.commits[idx - 1],
+      store.commits[idx + 2],
+      store.commits[idx - 2],
+    ].filter(Boolean)
+    for (const n of neighbors) store.prefetch(n.hash)
+  },
+)
 
 onMounted(() => {
   store.init()
