@@ -1,5 +1,8 @@
 export default defineEventHandler(async () => {
   const git = useGit()
+  const cfg = useRuntimeConfig()
+  const repoPath: string = cfg.repoPath
+  const repo = repoPath.replace(/\/+$/, '').split('/').pop() || repoPath
 
   let branch = ''
   try {
@@ -22,5 +25,5 @@ export default defineEventHandler(async () => {
   let head = ''
   try { head = (await git.raw(['rev-parse', 'HEAD'])).trim() } catch {}
 
-  return { branch, base, defaultRange, head }
+  return { branch, base, defaultRange, head, repo }
 })

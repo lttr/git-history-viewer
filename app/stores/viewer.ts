@@ -60,32 +60,45 @@ export interface RepoContext {
   base: string
   defaultRange: string
   head: string
+  repo: string
 }
 
-function readRangeFromUrl(): string {
-  if (typeof window === 'undefined') return ''
+interface UrlState {
+  repo: string
+  range: string
+  shas: string[]
+  file: string
+}
+
+function readUrl(): UrlState {
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '' }
   const p = new URLSearchParams(window.location.search)
-  return p.get('range') ?? ''
+  const shaRaw = p.get('sha') ?? ''
+  const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
+  return {
+    repo: p.get('repo') ?? '',
+    range: p.get('range') ?? '',
+    shas,
+    file: p.get('file') ?? '',
+  }
 }
 
-function writeRangeToUrl(range: string) {
+function writeUrl(patch: Partial<UrlState>) {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
-  if (range) url.searchParams.set('range', range)
-  else url.searchParams.delete('range')
-  history.replaceState(null, '', url.toString())
-}
-
-function readShaFromUrl(): string {
-  if (typeof window === 'undefined') return ''
-  return window.location.hash.replace(/^#/, '').trim()
-}
-
-function writeShaToUrl(sha: string) {
-  if (typeof window === 'undefined') return
-  const short = sha.slice(0, 8)
-  const url = new URL(window.location.href)
-  url.hash = short ? `#${short}` : ''
+  const setOrDel = (key: string, val: string | undefined) => {
+    if (val === undefined) return
+    if (val) url.searchParams.set(key, val)
+    else url.searchParams.delete(key)
+  }
+  if (patch.repo !== undefined) setOrDel('repo', patch.repo)
+  if (patch.range !== undefined) setOrDel('range', patch.range)
+  if (patch.shas !== undefined) {
+    const joined = patch.shas.map((s) => s.slice(0, 8)).join(',')
+    setOrDel('sha', joined)
+  }
+  if (patch.file !== undefined) setOrDel('file', patch.file)
+  url.hash = ''
   history.replaceState(null, '', url.toString())
 }
 
@@ -129,29 +142,24 @@ export const useViewerStore = defineStore('viewer', {
       if (!this.context) {
         this.context = await $fetch<RepoContext>('/api/context')
       }
-      const fromUrl = readRangeFromUrl()
-      this.range = fromUrl || this.context.defaultRange
-      await this.reloadCommits()
-      const sha = readShaFromUrl()
-      if (sha) {
-        const match = this.commits.find((c) => c.hash.startsWith(sha)) || null
-        if (match) await this.selectCommit(match.hash)
-        else writeShaToUrl('')
-      }
-      if (typeof window !== 'undefined') {
-        window.addEventListener('hashchange', () => {
-          const s = readShaFromUrl()
-          if (s && !this.selectedSha.startsWith(s)) {
-            const m = this.commits.find((c) => c.hash.startsWith(s))
-            if (m) this.selectCommit(m.hash)
-            else writeShaToUrl('')
-          }
-        })
+      const urlState = readUrl()
+      this.range = urlState.range || this.context.defaultRange
+      writeUrl({ repo: this.context.repo, range: this.range })
+      await this.loadMore({ autoSelect: false })
+      if (urlState.shas.length) {
+        const resolved = urlState.shas
+          .map((s) => this.commits.find((c) => c.hash.startsWith(s))?.hash)
+          .filter((x): x is string => !!x)
+        if (resolved.length > 1) await this.setMultiSelection(resolved, urlState.file)
+        else if (resolved.length === 1) await this.selectCommit(resolved[0], urlState.file)
+        else if (this.commits[0]) await this.selectCommit(this.commits[0].hash)
+      } else if (this.commits[0]) {
+        await this.selectCommit(this.commits[0].hash)
       }
     },
     async setRange(range: string) {
       this.range = range.trim()
-      writeRangeToUrl(this.range)
+      writeUrl({ range: this.range })
       await this.reloadCommits()
     },
     async reloadCommits() {
@@ -166,7 +174,8 @@ export const useViewerStore = defineStore('viewer', {
       this.rangeError = ''
       await this.loadMore()
     },
-    async loadMore() {
+    async loadMore(opts: { autoSelect?: boolean } = {}) {
+      const autoSelect = opts.autoSelect ?? true
       if (this.commitsLoading || this.commitsDone) return
       this.commitsLoading = true
       try {
@@ -175,7 +184,7 @@ export const useViewerStore = defineStore('viewer', {
         })
         if (!data.length) this.commitsDone = true
         this.commits.push(...data)
-        if (!this.selectedSha && this.commits[0]) {
+        if (autoSelect && !this.selectedSha && this.commits[0]) {
           await this.selectCommit(this.commits[0].hash)
         }
       } catch (e: any) {
@@ -185,18 +194,24 @@ export const useViewerStore = defineStore('viewer', {
         this.commitsLoading = false
       }
     },
-    async selectCommit(sha: string) {
+    async selectCommit(sha: string, preferFile = '') {
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
-      writeShaToUrl(sha)
+      writeUrl({ shas: [sha] })
       const my = ++selectFetchId
+      const pickFile = (files: { path: string }[]) => {
+        if (preferFile && files.some((f) => f.path === preferFile)) return preferFile
+        return files[0]?.path ?? ''
+      }
       const applyWithTransition = (detail: CommitDetail, diffs: DiffsPayload) => {
         const apply = () => {
           this.commitDetail = detail
           this.diffs = diffs
-          this.skipNextScroll = true
-          this.selectedFile = detail.files[0]?.path ?? ''
+          const picked = pickFile(detail.files)
+          this.skipNextScroll = picked === (detail.files[0]?.path ?? '')
+          this.selectedFile = picked
+          writeUrl({ file: this.selectedFile })
           return nextTick()
         }
         const doc = typeof document !== 'undefined' ? (document as any) : null
@@ -221,16 +236,16 @@ export const useViewerStore = defineStore('viewer', {
         if (my === selectFetchId) this.diffsLoading = false
       }
     },
-    async setMultiSelection(shas: string[]) {
+    async setMultiSelection(shas: string[], preferFile = '') {
       const unique = [...new Set(shas)]
       if (unique.length === 0) return
       if (unique.length === 1) {
-        await this.selectCommit(unique[0])
+        await this.selectCommit(unique[0], preferFile)
         return
       }
       this.selectedShas = unique
       this.selectedSha = unique[0]
-      writeShaToUrl('')
+      writeUrl({ shas: unique })
       const my = ++selectFetchId
       this.diffsLoading = true
       try {
@@ -240,8 +255,12 @@ export const useViewerStore = defineStore('viewer', {
         if (my !== selectFetchId) return
         this.commitDetail = null
         this.diffs = { sha: payload.to, parent: payload.base, files: payload.files }
-        this.skipNextScroll = true
-        this.selectedFile = payload.files[0]?.path ?? ''
+        const picked = preferFile && payload.files.some((f) => f.path === preferFile)
+          ? preferFile
+          : payload.files[0]?.path ?? ''
+        this.skipNextScroll = picked === (payload.files[0]?.path ?? '')
+        this.selectedFile = picked
+        writeUrl({ file: this.selectedFile })
       } finally {
         if (my === selectFetchId) this.diffsLoading = false
       }
@@ -284,6 +303,7 @@ export const useViewerStore = defineStore('viewer', {
     selectFile(path: string) {
       this.skipNextScroll = false
       this.selectedFile = path
+      writeUrl({ file: path })
     },
     toggleDiffMode() {
       this.diffMode = this.diffMode === 'split' ? 'unified' : 'split'
