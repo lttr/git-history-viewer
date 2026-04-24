@@ -132,14 +132,33 @@ async function useAll() {
   cursor: text;
   outline: none;
 }
-.actions { display: flex; gap: 4px; }
+.actions {
+  display: flex;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
 .actions button {
   font-size: 10px;
-  padding: 3px 8px;
+  padding: 3px 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  background: transparent;
+  color: var(--fg-dim);
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
 }
-.actions button:disabled { opacity: 0.4; cursor: default; }
+.actions button + button { border-left: 1px solid var(--border); }
+.actions button:hover:not(:disabled) { background: var(--bg-3); color: var(--fg); }
+.actions button:disabled {
+  color: #ffcc66;
+  cursor: default;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 #ffcc66;
+}
 .err {
   flex-basis: 100%;
   color: #f28779;
