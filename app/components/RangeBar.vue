@@ -39,37 +39,43 @@ async function useAll() {
 
 <template>
   <div class="range-bar">
-    <div class="labels">
-      <span v-if="store.context" class="branch">{{ store.context.branch || 'detached' }}</span>
-      <span class="count">· {{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
-    </div>
-    <div class="range">
+    <template v-if="editing">
       <input
-        v-if="editing"
         ref="inputEl"
         v-model="draft"
         class="input"
-        placeholder="main..HEAD"
+        :placeholder="store.context?.base ? `${store.context.base}..HEAD` : 'master..HEAD'"
         spellcheck="false"
         @keydown.enter="submit"
         @keydown.esc="cancel"
         @blur="submit"
       />
-      <button v-else class="range-btn" :title="'Edit range'" @click="startEdit">
-        {{ store.range || 'HEAD' }}
-      </button>
-    </div>
-    <div class="actions">
+    </template>
+    <template v-else>
+      <div class="labels">
+        <span v-if="store.context" class="branch">{{ store.context.branch || 'detached' }}</span>
+        <span class="count">· {{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
+      </div>
+      <div class="spacer" />
       <button
-        v-if="store.context?.base"
-        :disabled="store.range === `${store.context.base}..HEAD`"
-        :title="`Show ${store.context.base}..HEAD`"
-        @click="useBase"
+        class="icon-btn"
+        :title="`Range: ${store.range || 'HEAD'} (click to edit)`"
+        @click="startEdit"
       >
-        branch
+        ✎ {{ store.range || 'HEAD' }}
       </button>
-      <button :disabled="!store.range" title="Show full history" @click="useAll">all</button>
-    </div>
+      <div class="actions">
+        <button
+          v-if="store.context?.base"
+          :disabled="store.range === `${store.context.base}..HEAD`"
+          :title="`Show ${store.context.base}..HEAD`"
+          @click="useBase"
+        >
+          branch
+        </button>
+        <button :disabled="!store.range" title="Show full history" @click="useAll">all</button>
+      </div>
+    </template>
     <div v-if="store.rangeError" class="err">{{ store.rangeError }}</div>
   </div>
 </template>
@@ -97,26 +103,35 @@ async function useAll() {
   font-weight: 600;
 }
 .count { color: var(--fg-dim); }
-.range {
+.spacer { flex: 1; min-width: 0; }
+.icon-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.icon-btn:hover { border-color: var(--fg-dim); }
+.input {
   flex: 1;
   min-width: 0;
-  display: flex;
-}
-.range-btn, .input {
-  width: 100%;
   font-family: var(--mono);
   font-size: 11px;
   padding: 3px 6px;
   background: var(--bg);
   color: var(--fg);
-  border: 1px solid var(--border);
+  border: 1px solid #ffcc66;
   border-radius: 3px;
   cursor: text;
+  outline: none;
 }
-.range-btn { text-align: left; }
-.range-btn:hover { border-color: var(--fg-dim); background: var(--bg); }
-.input { outline: none; }
-.input:focus { border-color: #ffcc66; }
 .actions { display: flex; gap: 4px; }
 .actions button {
   font-size: 10px;
