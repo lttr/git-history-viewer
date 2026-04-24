@@ -9,6 +9,59 @@ const store = useViewerStore()
 const scrollEl = ref<HTMLElement | null>(null)
 const expanded = ref<Set<string>>(new Set())
 const showDeleted = ref<Set<string>>(new Set())
+const renderedFiles = ref<Set<string>>(new Set())
+const forceLoaded = ref<Set<string>>(new Set())
+const HEAVY_LINE_THRESHOLD = 3000
+const EAGER_FILE_COUNT = 3
+
+function comparePath(a: string, b: string): number {
+  const A = a.split('/')
+  const B = b.split('/')
+  const n = Math.min(A.length, B.length)
+  for (let i = 0; i < n; i++) {
+    const ai = A[i], bi = B[i]
+    const aLeaf = i === A.length - 1
+    const bLeaf = i === B.length - 1
+    if (ai === bi) {
+      if (aLeaf !== bLeaf) return aLeaf ? 1 : -1
+      if (aLeaf && bLeaf) return 0
+      continue
+    }
+    const aIsFolder = !aLeaf
+    const bIsFolder = !bLeaf
+    if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1
+    return ai.localeCompare(bi)
+  }
+  return A.length - B.length
+}
+
+const orderedFiles = computed<FileDiff[]>(() => {
+  const files = store.diffs?.files ?? []
+  return [...files].sort((x, y) => comparePath(x.path, y.path))
+})
+
+function patchLines(patch: string): number {
+  if (!patch) return 0
+  let n = 0
+  for (let i = 0; i < patch.length; i++) if (patch.charCodeAt(i) === 10) n++
+  return n
+}
+function isHeavy(f: FileDiff) {
+  return patchLines(f.patch) > HEAVY_LINE_THRESHOLD
+}
+function shouldRender(f: FileDiff) {
+  if (!renderedFiles.value.has(f.path)) return false
+  if (forceLoaded.value.has(f.path)) return true
+  return !isHeavy(f)
+}
+function estimatedHeight(f: FileDiff) {
+  const lines = patchLines(f.patch)
+  return Math.min(800, Math.max(160, lines * 16))
+}
+function forceLoad(path: string) {
+  const rn = new Set(renderedFiles.value); rn.add(path); renderedFiles.value = rn
+  const fn = new Set(forceLoaded.value); fn.add(path); forceLoaded.value = fn
+}
 
 function fileId(path: string) {
   return `diff-${btoa(unescape(encodeURIComponent(path))).replace(/[^a-zA-Z0-9]/g, '')}`
@@ -52,6 +105,8 @@ function toggleDeleted(path: string) {
 
 let userScrolling = false
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+let programmaticScroll = false
+let programmaticScrollTimeout: ReturnType<typeof setTimeout> | null = null
 
 function scrollToFile(path: string) {
   const container = scrollEl.value
@@ -59,6 +114,9 @@ function scrollToFile(path: string) {
   const target = container.querySelector<HTMLElement>(`#${fileId(path)}`)
   if (!target) return
   userScrolling = false
+  programmaticScroll = true
+  if (programmaticScrollTimeout) clearTimeout(programmaticScrollTimeout)
+  programmaticScrollTimeout = setTimeout(() => { programmaticScroll = false }, 600)
   const top = target.offsetTop - container.offsetTop
   container.scrollTo({ top, behavior: 'smooth' })
 }
@@ -71,6 +129,9 @@ watch(
       store.skipNextScroll = false
       return
     }
+    const rn = new Set(renderedFiles.value)
+    rn.add(path)
+    renderedFiles.value = rn
     nextTick(() => scrollToFile(path))
   },
 )
@@ -80,16 +141,32 @@ watch(
   () => {
     expanded.value = new Set()
     showDeleted.value = new Set()
+    forceLoaded.value = new Set()
     nextTick(() => scrollEl.value?.scrollTo({ top: 0 }))
   },
 )
 
+watch(
+  () => store.diffs,
+  () => {
+    const eager = new Set<string>()
+    const files = orderedFiles.value
+    for (let i = 0; i < Math.min(EAGER_FILE_COUNT, files.length); i++) {
+      eager.add(files[i].path)
+    }
+    renderedFiles.value = eager
+  },
+  { immediate: true },
+)
+
 let io: IntersectionObserver | null = null
+let renderIo: IntersectionObserver | null = null
 function setupObserver() {
   if (!scrollEl.value) return
   io?.disconnect()
   io = new IntersectionObserver(
     (entries) => {
+      if (programmaticScroll) return
       const visible = entries
         .filter((e) => e.isIntersecting)
         .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
@@ -104,8 +181,23 @@ function setupObserver() {
     },
     { root: scrollEl.value, threshold: [0, 0.25, 0.5], rootMargin: '-20% 0px -60% 0px' },
   )
+  renderIo?.disconnect()
+  renderIo = new IntersectionObserver(
+    (entries) => {
+      let changed = false
+      const next = new Set(renderedFiles.value)
+      for (const e of entries) {
+        if (!e.isIntersecting) continue
+        const p = (e.target as HTMLElement).dataset.path
+        if (p && !next.has(p)) { next.add(p); changed = true }
+      }
+      if (changed) renderedFiles.value = next
+    },
+    { root: scrollEl.value, rootMargin: '800px 0px 800px 0px' },
+  )
   for (const el of scrollEl.value.querySelectorAll<HTMLElement>('[data-path]')) {
     io.observe(el)
+    renderIo.observe(el)
   }
 }
 
@@ -115,14 +207,24 @@ watch(
 )
 
 onMounted(() => nextTick(setupObserver))
-onUnmounted(() => io?.disconnect())
+onUnmounted(() => { io?.disconnect(); renderIo?.disconnect() })
+
+function scrollToFileForce(path: string) {
+  forceLoad(path)
+  nextTick(() => scrollToFile(path))
+}
 </script>
 
 <template>
   <div class="diff-pane">
     <div class="header">
       <span class="path">
-        {{ store.commitDetail ? `${store.commitDetail.files.length} files` : '—' }}
+        <template v-if="store.isMulti">
+          {{ store.selectedShas.length }} commits · {{ store.diffs?.files.length ?? 0 }} files
+        </template>
+        <template v-else>
+          {{ store.commitDetail ? `${store.commitDetail.files.length} files` : '—' }}
+        </template>
         <span v-if="store.selectedFile" class="active-file">· {{ store.selectedFile }}</span>
       </span>
       <button @click="store.toggleDiffMode()">
@@ -130,11 +232,22 @@ onUnmounted(() => io?.disconnect())
       </button>
     </div>
     <div ref="scrollEl" class="body">
-      <div v-if="store.diffsLoading" class="state">Loading…</div>
-      <div v-else-if="!store.diffs" class="state">Select a commit</div>
+      <div v-if="!store.diffs" class="state">
+        {{ store.diffsLoading ? 'Loading…' : 'Select a commit' }}
+      </div>
       <div v-else-if="!store.diffs.files.length" class="state">No files changed</div>
       <template v-else>
-        <div v-if="store.commitDetail" class="commit-meta">
+        <div v-if="store.isMulti" class="commit-meta multi">
+          <div class="subject">{{ store.selectedShas.length }} commits aggregated</div>
+          <ul class="commit-list-inline">
+            <li v-for="c in store.selectedCommits" :key="c.hash">
+              <span class="sha">{{ c.shortHash }}</span>
+              <span class="subj">{{ c.subject }}</span>
+              <span class="author">{{ c.author }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-else-if="store.commitDetail" class="commit-meta">
           <div class="subject">{{ store.commitDetail.subject }}</div>
           <pre v-if="store.commitDetail.body" class="body-text">{{ store.commitDetail.body }}</pre>
           <div class="meta-row">
@@ -145,7 +258,7 @@ onUnmounted(() => io?.disconnect())
           </div>
         </div>
         <section
-          v-for="f in store.diffs.files"
+          v-for="f in orderedFiles"
           :id="fileId(f.path)"
           :key="f.path"
           :data-path="f.path"
@@ -194,7 +307,28 @@ onUnmounted(() => io?.disconnect())
           </template>
 
           <template v-else>
-            <div class="diff-wrap" :class="{ truncated: !expanded.has(f.path) }">
+            <div
+              v-if="!shouldRender(f)"
+              class="placeholder"
+              :style="{ minHeight: estimatedHeight(f) + 'px' }"
+            >
+              <div class="ph-info">
+                <template v-if="isHeavy(f) && !forceLoaded.has(f.path)">
+                  Large diff: {{ patchLines(f.patch).toLocaleString() }} lines
+                </template>
+                <template v-else>
+                  Pending render
+                </template>
+              </div>
+              <button
+                v-if="isHeavy(f) && !forceLoaded.has(f.path)"
+                class="show-more"
+                @click="forceLoad(f.path)"
+              >
+                Load diff
+              </button>
+            </div>
+            <div v-else class="diff-wrap" :class="{ truncated: !expanded.has(f.path) }">
               <DiffView
                 :data="diffDataFor(f)"
                 :diff-view-mode="mode"
@@ -248,6 +382,7 @@ onUnmounted(() => io?.disconnect())
   flex: 1;
   overflow: auto;
   scroll-behavior: auto;
+  view-transition-name: diff-pane;
 }
 .state {
   padding: 24px;
@@ -291,6 +426,23 @@ onUnmounted(() => io?.disconnect())
   font-style: italic;
   font-size: 12px;
 }
+.placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0 8px,
+      var(--bg-2) 8px 16px
+    );
+}
+.placeholder .ph-info { opacity: 0.7; }
 .deleted-block {
   padding: 10px 16px;
   color: var(--fg-dim);
@@ -394,4 +546,39 @@ onUnmounted(() => io?.disconnect())
   font-size: 11px;
 }
 .commit-meta .merge-tag::before { content: '◇ '; }
+.commit-meta.multi .commit-list-inline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.commit-meta.multi .commit-list-inline li {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--fg-dim);
+  align-items: baseline;
+}
+.commit-meta.multi .commit-list-inline .sha {
+  font-family: var(--mono);
+  color: #ffcc66;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.commit-meta.multi .commit-list-inline .subj {
+  color: var(--fg);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.commit-meta.multi .commit-list-inline .author {
+  font-size: 11px;
+  color: var(--fg-dim);
+  flex: 0 0 auto;
+}
 </style>

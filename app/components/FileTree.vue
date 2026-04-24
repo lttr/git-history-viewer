@@ -43,7 +43,12 @@ function sortNode(node: TreeNode) {
   for (const c of node.children) sortNode(c)
 }
 
-const tree = computed(() => buildTree(store.commitDetail?.files ?? []))
+const files = computed<CommitFile[]>(() => {
+  if (store.commitDetail) return store.commitDetail.files
+  if (store.diffs) return store.diffs.files.map((f) => ({ path: f.path, status: f.status, oldPath: f.oldPath }))
+  return []
+})
+const tree = computed(() => buildTree(files.value))
 const collapsed = ref(new Set<string>())
 
 function toggle(path: string) {
@@ -58,10 +63,10 @@ function toggle(path: string) {
   <div class="file-tree">
     <div class="header">
       Files
-      <span v-if="store.commitDetail" class="count">({{ store.commitDetail.files.length }})</span>
+      <span v-if="files.length" class="count">({{ files.length }})</span>
     </div>
     <div class="scroll">
-      <template v-if="store.commitDetail">
+      <template v-if="files.length">
         <TreeNodeRow
           v-for="child in tree.children"
           :key="child.path"

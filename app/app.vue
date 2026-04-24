@@ -77,4 +77,25 @@ button:hover { background: var(--border); }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* View transition between commit selections */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 90ms;
+  animation-timing-function: ease-out;
+}
+::view-transition-old(diff-pane) {
+  animation: vt-fade-out 70ms ease-out both;
+}
+::view-transition-new(diff-pane) {
+  animation: vt-fade-in 110ms ease-out both;
+}
+@keyframes vt-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes vt-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 </style>

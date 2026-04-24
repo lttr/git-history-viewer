@@ -21,10 +21,12 @@ onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
 const bindings: Array<{ keys: string[]; desc: string }> = [
-  { keys: ['j'], desc: 'Next commit' },
-  { keys: ['k'], desc: 'Previous commit' },
-  { keys: ['n', 'J'], desc: 'Next file (scroll diff)' },
-  { keys: ['p', 'K'], desc: 'Previous file' },
+  { keys: ['n'], desc: 'Next commit' },
+  { keys: ['p'], desc: 'Previous commit' },
+  { keys: ['Shift', 'N'], desc: 'Extend group to next commit' },
+  { keys: ['Shift', 'P'], desc: 'Extend group to previous commit' },
+  { keys: ['j'], desc: 'Next file (scroll diff)' },
+  { keys: ['k'], desc: 'Previous file' },
   { keys: ['?'], desc: 'Toggle this legend' },
   { keys: ['Esc'], desc: 'Close legend' },
 ]

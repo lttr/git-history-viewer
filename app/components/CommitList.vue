@@ -6,6 +6,22 @@ const store = useViewerStore()
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('cs-CZ')
 }
+
+function onClick(e: MouseEvent, sha: string) {
+  if (e.shiftKey) {
+    e.preventDefault()
+    store.extendSelectionTo(sha)
+  } else if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    store.toggleCommit(sha)
+  } else {
+    store.selectCommit(sha)
+  }
+}
+
+function isSelected(hash: string) {
+  return store.selectedShas.includes(hash)
+}
 </script>
 
 <template>
@@ -16,8 +32,8 @@ function fmtDate(iso: string) {
         v-for="c in store.commits"
         :key="c.hash"
         class="row"
-        :class="{ active: c.hash === store.selectedSha }"
-        @click="store.selectCommit(c.hash)"
+        :class="{ active: isSelected(c.hash), primary: c.hash === store.selectedSha }"
+        @click="onClick($event, c.hash)"
       >
         <div class="subject">{{ c.subject }}</div>
         <div class="meta">
@@ -63,7 +79,8 @@ function fmtDate(iso: string) {
   cursor: pointer;
 }
 .row:hover { background: var(--bg-3); }
-.row.active { background: var(--bg-3); border-left: 2px solid var(--accent); padding-left: 10px; }
+.row.active { background: var(--bg-3); border-left: 2px solid #ffcc66; padding-left: 10px; }
+.row.primary { background: var(--bg-3); box-shadow: inset 2px 0 0 #ffcc66; }
 .subject {
   font-weight: 600;
   white-space: nowrap;
