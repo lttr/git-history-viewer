@@ -17,7 +17,7 @@ export default defineEventHandler(async () => {
     } catch {}
   }
 
-  const defaultRange = base ? `${base}..HEAD` : 'HEAD~50..HEAD'
+  const defaultRange = base ? `${base}..HEAD` : 'HEAD'
 
   let head = ''
   try { head = (await git.raw(['rev-parse', 'HEAD'])).trim() } catch {}
