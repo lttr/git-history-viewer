@@ -15,13 +15,14 @@ if (!existsSync(entry)) {
   process.exit(1)
 }
 
-const repoPath = process.cwd()
+const repoPath = resolve(process.env.GHV_REPO_PATH || process.cwd())
 const port = Number(process.env.PORT || 3434)
 const host = process.env.HOST || '127.0.0.1'
 
 const env = {
   ...process.env,
   GHV_REPO_PATH: repoPath,
+  NUXT_REPO_PATH: repoPath,
   PORT: String(port),
   HOST: host,
   NITRO_PORT: String(port),
