@@ -1,4 +1,4 @@
-# ghv
+# Git History Viewer
 
 Browser-based git history viewer. Three panes: commits, file tree, diff.
 
@@ -44,11 +44,11 @@ Dev server on `http://localhost:3000`.
 
 ## Env
 
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `GHV_REPO_PATH` | `process.cwd()` | Target repo root |
-| `PORT` | `3434` (prod) / `3000` (dev) | HTTP port |
-| `HOST` | `127.0.0.1` | Bind host |
+| Var             | Default                      | Purpose          |
+| --------------- | ---------------------------- | ---------------- |
+| `GHV_REPO_PATH` | `process.cwd()`              | Target repo root |
+| `PORT`          | `3434` (prod) / `3000` (dev) | HTTP port        |
+| `HOST`          | `127.0.0.1`                  | Bind host        |
 
 ## Known limits
 
