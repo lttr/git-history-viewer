@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
+import { comparePath } from '~/utils/comparePath'
 
 const store = useViewerStore()
 
@@ -73,8 +74,9 @@ function extendGroup(delta: number) {
 }
 
 function stepFile(delta: number) {
-  const files = store.diffs?.files ?? store.commitDetail?.files ?? []
-  if (!files.length) return
+  const raw = store.diffs?.files ?? store.commitDetail?.files ?? []
+  if (!raw.length) return
+  const files = [...raw].sort((a, b) => comparePath(a.path, b.path))
   const idx = files.findIndex((f) => f.path === store.selectedFile)
   const next = Math.max(0, Math.min(files.length - 1, idx + delta))
   const target = files[next]
