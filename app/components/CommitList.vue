@@ -4,14 +4,13 @@ import { useViewerStore } from '~/stores/viewer'
 const store = useViewerStore()
 
 function fmtDate(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleDateString(undefined, { year: '2-digit', month: 'short', day: '2-digit' })
+  return new Date(iso).toLocaleDateString('cs-CZ')
 }
 </script>
 
 <template>
   <div class="commit-list">
-    <div class="header">Commits ({{ store.commits.length }})</div>
+    <RangeBar />
     <div class="scroll">
       <div
         v-for="c in store.commits"
@@ -66,6 +65,7 @@ function fmtDate(iso: string) {
 .row:hover { background: var(--bg-3); }
 .row.active { background: var(--bg-3); border-left: 2px solid var(--accent); padding-left: 10px; }
 .subject {
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -77,8 +77,9 @@ function fmtDate(iso: string) {
   font-size: 11px;
   color: var(--fg-dim);
 }
-.sha { font-family: var(--mono); color: var(--yellow); }
-.author { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sha { font-family: var(--mono); color: #ffcc66; }
+.author { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.date { color: var(--fg-dim); }
 .load-more {
   padding: 12px;
   text-align: center;

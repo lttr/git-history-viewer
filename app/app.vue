@@ -9,8 +9,8 @@
   --bg-2: #161b22;
   --bg-3: #21262d;
   --border: #30363d;
-  --fg: #c9d1d9;
-  --fg-dim: #8b949e;
+  --fg: #e6edf3;
+  --fg-dim: #9da7b3;
   --accent: #58a6ff;
   --green: #3fb950;
   --red: #f85149;
@@ -18,6 +18,34 @@
   --blue: #58a6ff;
   --purple: #bc8cff;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Ayu Mirage palette for the code diff view only (!important beats lib CSS order) */
+.diff-tailwindcss-wrapper[data-theme="dark"] .diff-style-root {
+  --diff-border--: #33415e !important;
+  --diff-plain-content--: #1f2430 !important;
+  --diff-plain-lineNumber--: #232834 !important;
+  --diff-plain-lineNumber-color--: #707a8c !important;
+  --diff-empty-content--: #1a1f2a !important;
+  --diff-expand-content--: #232834 !important;
+  --diff-expand-lineNumber--: #232834 !important;
+  --diff-expand-lineNumber-color--: #707a8c !important;
+
+  --diff-add-content--: #253027 !important;
+  --diff-add-content-highlight--: #324a32 !important;
+  --diff-add-lineNumber--: #293a2b !important;
+
+  --diff-del-content--: #2d2328 !important;
+  --diff-del-content-highlight--: #4a3036 !important;
+  --diff-del-lineNumber--: #36272c !important;
+
+  --diff-hunk-content--: #23293a !important;
+  --diff-hunk-content-color--: #6c7388 !important;
+  --diff-hunk-lineNumber--: #263044 !important;
+  --diff-hunk-lineNumber-hover--: #5ccfe6 !important;
+
+  --diff-add-widget--: #ffcc66 !important;
+  --diff-add-widget-color--: #1f2430 !important;
 }
 
 * {

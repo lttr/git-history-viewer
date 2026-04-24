@@ -32,7 +32,7 @@ Dev server on `http://localhost:3000`.
 ## Keys
 
 - `j` / `k` — next / previous commit
-- `J` / `K` — next / previous file
+- `n` / `p` (or `J` / `K`) — next / previous file (scrolls diff pane)
 - Top-right button — toggle side-by-side / unified diff
 
 ## Layout

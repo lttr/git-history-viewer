@@ -5,7 +5,7 @@ import { useViewerStore } from '~/stores/viewer'
 const store = useViewerStore()
 
 onMounted(() => {
-  store.loadMore()
+  store.init()
   window.addEventListener('keydown', onKey)
 })
 onUnmounted(() => {
@@ -14,11 +14,18 @@ onUnmounted(() => {
 
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+  if (e.metaKey || e.ctrlKey || e.altKey) return
   const shift = e.shiftKey
-  if (e.key === 'j' || e.key === 'k') {
+  if (e.key === 'j' || e.key === 'k' || e.key === 'J' || e.key === 'K') {
     e.preventDefault()
-    if (shift) stepFile(e.key === 'j' ? 1 : -1)
-    else stepCommit(e.key === 'j' ? 1 : -1)
+    const dir = (e.key === 'j' || e.key === 'J') ? 1 : -1
+    if (shift) stepFile(dir)
+    else stepCommit(dir)
+    return
+  }
+  if (e.key === 'n' || e.key === 'p') {
+    e.preventDefault()
+    stepFile(e.key === 'n' ? 1 : -1)
   }
 }
 
@@ -45,6 +52,7 @@ function stepFile(delta: number) {
     <CommitList class="pane pane-commits" />
     <FileTree class="pane pane-files" />
     <DiffView class="pane pane-diff" />
+    <HotkeyHelp />
   </div>
 </template>
 
