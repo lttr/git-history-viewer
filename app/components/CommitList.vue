@@ -1,7 +1,20 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 
 const store = useViewerStore()
+const scrollEl = ref<HTMLElement | null>(null)
+
+watch(
+  () => store.selectedSha,
+  (sha) => {
+    if (!sha) return
+    nextTick(() => {
+      const el = scrollEl.value?.querySelector<HTMLElement>(`[data-sha="${sha}"]`)
+      el?.scrollIntoView({ block: 'nearest' })
+    })
+  },
+)
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('cs-CZ')
@@ -27,12 +40,13 @@ function isSelected(hash: string) {
 <template>
   <div class="commit-list">
     <RangeBar />
-    <div class="scroll">
+    <div ref="scrollEl" class="scroll">
       <div
         v-for="c in store.commits"
         :key="c.hash"
         class="row"
         :class="{ active: isSelected(c.hash), primary: c.hash === store.selectedSha }"
+        :data-sha="c.hash"
         @click="onClick($event, c.hash)"
       >
         <div class="subject">{{ c.subject }}</div>

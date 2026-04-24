@@ -37,6 +37,7 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
       class="row file"
       :class="{ active: isSelected }"
       :style="pad"
+      :data-path="node.file.path"
       @click="emit('select', node.file.path)"
     >
       <span class="icon">·</span>

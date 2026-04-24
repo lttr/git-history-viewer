@@ -7,20 +7,31 @@ const store = useViewerStore()
 const editing = ref(false)
 const draft = ref('')
 const inputEl = ref<HTMLInputElement | null>(null)
+let settled = false
 
 function startEdit() {
   draft.value = store.range
   editing.value = true
+  settled = false
   nextTick(() => inputEl.value?.select())
 }
 
 async function submit() {
+  if (settled) return
+  settled = true
   editing.value = false
   await store.setRange(draft.value)
 }
 
 function cancel() {
+  if (settled) return
+  settled = true
   editing.value = false
+}
+
+function onBlur() {
+  if (settled) return
+  submit()
 }
 
 watch(
@@ -48,7 +59,7 @@ async function useAll() {
         spellcheck="false"
         @keydown.enter="submit"
         @keydown.esc="cancel"
-        @blur="submit"
+        @blur="onBlur"
       />
     </template>
     <template v-else>

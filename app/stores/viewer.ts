@@ -5,10 +5,11 @@ let selectFetchId = 0
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
 const MAX_CACHE = 100
 function cacheSet(sha: string, value: { detail: CommitDetail; diffs: DiffsPayload }) {
+  if (commitCache.has(sha)) commitCache.delete(sha)
   commitCache.set(sha, value)
   if (commitCache.size > MAX_CACHE) {
     const first = commitCache.keys().next().value
-    if (first) commitCache.delete(first)
+    if (first !== undefined) commitCache.delete(first)
   }
 }
 
@@ -83,7 +84,8 @@ function readUrl(): UrlState {
   }
 }
 
-function writeUrl(patch: Partial<UrlState>) {
+let suppressPopstate = false
+function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace') {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
   const setOrDel = (key: string, val: string | undefined) => {
@@ -99,7 +101,12 @@ function writeUrl(patch: Partial<UrlState>) {
   }
   if (patch.file !== undefined) setOrDel('file', patch.file)
   url.hash = ''
-  history.replaceState(null, '', url.toString())
+  const target = url.toString()
+  if (target === window.location.href) return
+  suppressPopstate = true
+  if (mode === 'push') history.pushState(null, '', target)
+  else history.replaceState(null, '', target)
+  suppressPopstate = false
 }
 
 export interface DiffsRangePayload {
@@ -147,19 +154,44 @@ export const useViewerStore = defineStore('viewer', {
       writeUrl({ repo: this.context.repo, range: this.range })
       await this.loadMore({ autoSelect: false })
       if (urlState.shas.length) {
-        const resolved = urlState.shas
-          .map((s) => this.commits.find((c) => c.hash.startsWith(s))?.hash)
-          .filter((x): x is string => !!x)
-        if (resolved.length > 1) await this.setMultiSelection(resolved, urlState.file)
-        else if (resolved.length === 1) await this.selectCommit(resolved[0], urlState.file)
+        const resolved = await Promise.all(urlState.shas.map((s) => this.resolveSha(s)))
+        const filtered = resolved.filter((x): x is string => !!x)
+        if (filtered.length > 1) await this.setMultiSelection(filtered, urlState.file)
+        else if (filtered.length === 1) await this.selectCommit(filtered[0], urlState.file)
         else if (this.commits[0]) await this.selectCommit(this.commits[0].hash)
       } else if (this.commits[0]) {
         await this.selectCommit(this.commits[0].hash)
       }
+      if (typeof window !== 'undefined') {
+        window.addEventListener('popstate', () => {
+          if (suppressPopstate) return
+          this.syncFromUrl()
+        })
+      }
+    },
+    async resolveSha(s: string): Promise<string> {
+      if (!/^[0-9a-f]{4,64}$/i.test(s)) return ''
+      const hit = this.commits.find((c) => c.hash.startsWith(s))
+      if (hit) return hit.hash
+      try {
+        const detail = await $fetch<{ hash: string }>(`/api/commit/${s}`)
+        return detail.hash
+      } catch { return '' }
+    },
+    async syncFromUrl() {
+      const s = readUrl()
+      if (s.range !== this.range) {
+        this.range = s.range
+        await this.reloadCommits()
+      }
+      const resolved = await Promise.all(s.shas.map((x) => this.resolveSha(x)))
+      const filtered = resolved.filter((x): x is string => !!x)
+      if (filtered.length > 1) await this.setMultiSelection(filtered, s.file)
+      else if (filtered.length === 1) await this.selectCommit(filtered[0], s.file)
     },
     async setRange(range: string) {
       this.range = range.trim()
-      writeUrl({ range: this.range })
+      writeUrl({ range: this.range }, 'push')
       await this.reloadCommits()
     },
     async reloadCommits() {
@@ -198,7 +230,7 @@ export const useViewerStore = defineStore('viewer', {
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
-      writeUrl({ shas: [sha] })
+      writeUrl({ shas: [sha] }, 'push')
       const my = ++selectFetchId
       const pickFile = (files: { path: string }[]) => {
         if (preferFile && files.some((f) => f.path === preferFile)) return preferFile
@@ -245,7 +277,10 @@ export const useViewerStore = defineStore('viewer', {
       }
       this.selectedShas = unique
       this.selectedSha = unique[0]
-      writeUrl({ shas: unique })
+      if (!this.lastPivotSha || !unique.includes(this.lastPivotSha)) {
+        this.lastPivotSha = unique[0]
+      }
+      writeUrl({ shas: unique }, 'push')
       const my = ++selectFetchId
       this.diffsLoading = true
       try {

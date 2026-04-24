@@ -14,6 +14,18 @@ const renderedFiles = ref<Set<string>>(new Set())
 const forceLoaded = ref<Set<string>>(new Set())
 const HEAVY_LINE_THRESHOLD = 3000
 const EAGER_FILE_COUNT = 3
+const HIGHLIGHT_LINE_THRESHOLD = 2000
+
+function countLines(s: string): number {
+  if (!s) return 0
+  let n = 1
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++
+  return n
+}
+function shouldHighlight(f: FileDiff): boolean {
+  const lines = Math.max(countLines(f.newContent), countLines(f.oldContent))
+  return lines > 0 && lines < HIGHLIGHT_LINE_THRESHOLD
+}
 
 const orderedFiles = computed<FileDiff[]>(() => {
   const files = store.diffs?.files ?? []
@@ -83,8 +95,7 @@ function toggleDeleted(path: string) {
   showDeleted.value = next
 }
 
-let userScrolling = false
-let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+let ioJustSet = ''
 let programmaticScroll = false
 let programmaticScrollTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -93,7 +104,6 @@ function scrollToFile(path: string) {
   if (!container) return
   const target = container.querySelector<HTMLElement>(`#${fileId(path)}`)
   if (!target) return
-  userScrolling = false
   programmaticScroll = true
   if (programmaticScrollTimeout) clearTimeout(programmaticScrollTimeout)
   programmaticScrollTimeout = setTimeout(() => { programmaticScroll = false }, 600)
@@ -104,7 +114,8 @@ function scrollToFile(path: string) {
 watch(
   () => store.selectedFile,
   (path) => {
-    if (!path || userScrolling) return
+    if (!path) return
+    if (path === ioJustSet) { ioJustSet = ''; return }
     if (store.skipNextScroll) {
       store.skipNextScroll = false
       return
@@ -153,10 +164,8 @@ function setupObserver() {
       if (!visible) return
       const path = (visible.target as HTMLElement).dataset.path
       if (path && path !== store.selectedFile) {
-        userScrolling = true
+        ioJustSet = path
         store.selectFile(path)
-        if (scrollTimeout) clearTimeout(scrollTimeout)
-        scrollTimeout = setTimeout(() => { userScrolling = false }, 400)
       }
     },
     { root: scrollEl.value, threshold: [0, 0.25, 0.5], rootMargin: '-20% 0px -60% 0px' },
@@ -267,7 +276,7 @@ function scrollToFileForce(path: string) {
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
-                :diff-view-highlight="false"
+                :diff-view-highlight="shouldHighlight(f)"
               />
               <div v-if="!expanded.has(f.path)" class="fade">
                 <button class="show-more" @click="toggleExpanded(f.path)">Show more</button>
@@ -314,7 +323,7 @@ function scrollToFileForce(path: string) {
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
-                :diff-view-highlight="false"
+                :diff-view-highlight="shouldHighlight(f)"
               />
               <div v-if="!expanded.has(f.path)" class="fade">
                 <button class="show-more" @click="toggleExpanded(f.path)">Show more</button>

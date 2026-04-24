@@ -1,9 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 import type { CommitFile } from '~/stores/viewer'
 
 const store = useViewerStore()
+const scrollEl = ref<HTMLElement | null>(null)
+
+function cssEscape(s: string) {
+  return (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(s) : s.replace(/["\\]/g, '\\$&')
+}
+
+watch(
+  () => store.selectedFile,
+  (p) => {
+    if (!p) return
+    nextTick(() => {
+      const el = scrollEl.value?.querySelector<HTMLElement>(`[data-path="${cssEscape(p)}"]`)
+      el?.scrollIntoView({ block: 'nearest' })
+    })
+  },
+)
 
 interface TreeNode {
   name: string
@@ -65,7 +81,7 @@ function toggle(path: string) {
       Files
       <span v-if="files.length" class="count">({{ files.length }})</span>
     </div>
-    <div class="scroll">
+    <div ref="scrollEl" class="scroll">
       <template v-if="files.length">
         <TreeNodeRow
           v-for="child in tree.children"

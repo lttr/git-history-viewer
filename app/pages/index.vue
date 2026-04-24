@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
+import { helpOpen } from '~/stores/ui'
 import { comparePath } from '~/utils/comparePath'
 
 const store = useViewerStore()
@@ -32,6 +33,7 @@ onUnmounted(() => {
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
+  if (helpOpen.value) return
   const key = e.key.toLowerCase()
   if ((key === 'n' || key === 'p') && e.shiftKey) {
     e.preventDefault()

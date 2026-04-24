@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-
-const open = ref(false)
+import { onMounted, onUnmounted } from 'vue'
+import { helpOpen as open } from '~/stores/ui'
 
 function toggle() { open.value = !open.value }
 function close() { open.value = false }
