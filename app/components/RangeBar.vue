@@ -128,24 +128,22 @@ const canReset = computed(() => {
       />
     </template>
     <template v-else>
-      <button
-        class="home-btn"
-        :disabled="!canReset"
-        title="Reset to initial view"
-        @click="reset"
-      >
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-          <path
-            fill="currentColor"
-            d="M8 1.5 1 7.5v.5h2v6h3.5v-4h3v4H13v-6h2v-.5L8 1.5Z"
-          />
-        </svg>
-      </button>
-      <div class="labels">
-        <span v-if="store.context" class="branch" :title="store.context.branch">{{ store.context.branch || 'detached' }}</span>
-        <span class="count">{{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
-      </div>
-      <div ref="menuEl" class="range-picker">
+      <div class="top-row">
+        <button
+          class="home-btn"
+          :disabled="!canReset"
+          title="Reset to initial view"
+          @click="reset"
+        >
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M8 1.5 1 7.5v.5h2v6h3.5v-4h3v4H13v-6h2v-.5L8 1.5Z"
+            />
+          </svg>
+        </button>
+        <div class="spacer" />
+        <div ref="menuEl" class="range-picker">
         <button
           class="icon-btn"
           :title="`Range: ${store.range || 'HEAD'}`"
@@ -172,6 +170,11 @@ const canReset = computed(() => {
             <span class="menu-label">custom range…</span>
           </button>
         </div>
+        </div>
+      </div>
+      <div class="labels">
+        <span v-if="store.context" class="branch" :title="store.context.branch">{{ store.context.branch || 'detached' }}</span>
+        <span class="count">{{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
       </div>
       <button
         v-if="store.focusPath"
@@ -190,19 +193,23 @@ const canReset = computed(() => {
 <style scoped>
 .range-bar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 6px 10px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
 }
+.top-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .labels {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  flex: 1 1 auto;
   min-width: 0;
   color: var(--fg-dim);
 }
