@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
   try {
     raw = await git.raw(args)
   } catch (e: any) {
-    throw createError({ statusCode: 400, message: `invalid range: ${e?.message || 'unknown'}` })
+    throw createError({ statusCode: 400, message: cleanGitError(e?.message, range) })
   }
 
   return raw

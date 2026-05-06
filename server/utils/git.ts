@@ -39,6 +39,16 @@ export function assertPath(p: string | undefined | null): string {
   return p
 }
 
+export function cleanGitError(msg: string | undefined, range: string): string {
+  const m = msg || ''
+  const ambig = m.match(/ambiguous argument '([^']+)':\s*unknown revision/i)
+  if (ambig) return `unknown revision: ${ambig[1]}`
+  const bad = m.match(/bad revision '([^']+)'/i)
+  if (bad) return `bad revision: ${bad[1]}`
+  if (range) return `invalid range '${range}'`
+  return 'invalid range'
+}
+
 const RANGE_TOKEN_RE = /^[A-Za-z0-9._/^~@{}=:+-]+$/
 export function assertRangeTokens(tokens: string[]): string[] {
   for (const t of tokens) {
