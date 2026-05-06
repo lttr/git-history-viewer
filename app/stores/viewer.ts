@@ -175,7 +175,13 @@ export const useViewerStore = defineStore('viewer', {
         const filtered = resolved.filter((x): x is string => !!x)
         if (filtered.length > 1) await this.setMultiSelection(filtered, urlState.file)
         else if (filtered.length === 1) await this.selectCommit(filtered[0], urlState.file)
+        else if (this.changesSummary.unstaged > 0) await this.selectChanges('unstaged')
+        else if (this.changesSummary.staged > 0) await this.selectChanges('staged')
         else if (this.commits[0]) await this.selectCommit(this.commits[0].hash)
+      } else if (this.changesSummary.unstaged > 0) {
+        await this.selectChanges('unstaged')
+      } else if (this.changesSummary.staged > 0) {
+        await this.selectChanges('staged')
       } else if (this.commits[0]) {
         await this.selectCommit(this.commits[0].hash)
       }

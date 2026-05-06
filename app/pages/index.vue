@@ -52,12 +52,30 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
+type Row =
+  | { kind: 'changes'; value: 'unstaged' | 'staged' }
+  | { kind: 'commit'; value: string }
+
+function rowList(): Row[] {
+  const rows: Row[] = []
+  if (store.changesSummary.unstaged > 0) rows.push({ kind: 'changes', value: 'unstaged' })
+  if (store.changesSummary.staged > 0) rows.push({ kind: 'changes', value: 'staged' })
+  for (const c of store.commits) rows.push({ kind: 'commit', value: c.hash })
+  return rows
+}
+
 function stepCommit(delta: number) {
-  if (!store.commits.length) return
-  const idx = store.commits.findIndex((c) => c.hash === store.selectedSha)
-  const next = Math.max(0, Math.min(store.commits.length - 1, idx + delta))
-  const target = store.commits[next]
-  if (target && target.hash !== store.selectedSha) store.selectCommit(target.hash)
+  const rows = rowList()
+  if (!rows.length) return
+  let idx = store.selectedChanges
+    ? rows.findIndex((r) => r.kind === 'changes' && r.value === store.selectedChanges)
+    : rows.findIndex((r) => r.kind === 'commit' && r.value === store.selectedSha)
+  if (idx < 0) idx = 0
+  const next = Math.max(0, Math.min(rows.length - 1, idx + delta))
+  if (next === idx) return
+  const target = rows[next]
+  if (target.kind === 'changes') store.selectChanges(target.value)
+  else store.selectCommit(target.value)
 }
 
 function extendGroup(delta: number) {
