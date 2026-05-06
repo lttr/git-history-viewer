@@ -1,30 +1,62 @@
 {
-  "name": "ghv",
+  "name": "@lttr/gv",
   "version": "0.1.0",
-  "private": true,
+  "description": "Browser-based git history viewer — commit list, file tree, diff. Run against any local repo.",
+  "keywords": [
+    "git",
+    "history",
+    "log",
+    "viewer",
+    "diff",
+    "browser",
+    "cli",
+    "nuxt"
+  ],
+  "license": "MIT",
+  "author": "Lukas Trumm",
+  "homepage": "https://github.com/lttr/git-history-viewer#readme",
+  "bugs": {
+    "url": "https://github.com/lttr/git-history-viewer/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lttr/git-history-viewer.git"
+  },
   "type": "module",
   "bin": {
-    "ghv": "./bin/ghv.mjs"
+    "gv": "./bin/gv.mjs"
+  },
+  "files": [
+    "bin",
+    ".output",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "start": "node bin/ghv.mjs"
+    "prepare": "nuxt prepare",
+    "start": "node bin/gv.mjs",
+    "prepublishOnly": "nuxt build"
   },
   "dependencies": {
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
     "@git-diff-view/vue": "^0.1.3",
     "@pinia/nuxt": "^0.11.3",
     "nuxt": "^4.0.0",
-    "open": "^10.1.0",
     "pinia": "^3.0.0",
     "simple-git": "^3.27.0",
+    "typescript": "^5.7.0",
     "vue": "^3.5.13"
-  },
-  "devDependencies": {
-    "typescript": "^5.7.0"
   },
   "packageManager": "pnpm@10.33.2"
 }

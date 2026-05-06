@@ -32,8 +32,8 @@ const pkgRoot = resolve(__dirname, '..')
 const entry = resolve(pkgRoot, '.output/server/index.mjs')
 
 if (!existsSync(entry)) {
-  console.error('[ghv] build not found at', entry)
-  console.error('[ghv] run `vp build` first')
+  console.error('[gv] build not found at', entry)
+  console.error('[gv] run `vp build` first')
   process.exit(1)
 }
 
@@ -48,19 +48,28 @@ if (argFile) {
   try {
     root = execSync('git rev-parse --show-toplevel', { cwd: startDir, encoding: 'utf8' }).trim()
   } catch {
-    console.error('[ghv] not a git repository:', abs)
+    console.error('[gv] not a git repository:', abs)
     process.exit(1)
   }
   const rel = relative(root, abs)
   if (!rel || rel.startsWith('..')) {
-    console.error('[ghv] file not inside repo:', abs)
+    console.error('[gv] file not inside repo:', abs)
     process.exit(1)
   }
   filePath = rel
   cwdForRepo = root
 }
 
-const repoPath = resolve(process.env.GHV_REPO_PATH || cwdForRepo)
+const repoPath = resolve(process.env.GV_REPO_PATH || cwdForRepo)
+
+try {
+  const root = execSync('git rev-parse --show-toplevel', { cwd: repoPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  if (!root) throw new Error('empty toplevel')
+} catch {
+  console.error(`[gv] not a git repository: ${repoPath}`)
+  process.exit(1)
+}
+
 const host = process.env.HOST || '127.0.0.1'
 const portExplicit = !!(process.env.PORT || process.env.NITRO_PORT)
 const basePort = Number(process.env.PORT || process.env.NITRO_PORT || 3434)
@@ -69,19 +78,19 @@ if (!portExplicit) {
   try {
     port = await findFreePort(basePort, host)
   } catch (err) {
-    console.error('[ghv]', err.message)
+    console.error('[gv]', err.message)
     process.exit(1)
   }
 } else if (!(await isPortFree(basePort, host))) {
-  console.error(`[ghv] port ${basePort} in use on ${host}`)
+  console.error(`[gv] port ${basePort} in use on ${host}`)
   process.exit(1)
 }
 
 const env = {
   ...process.env,
-  GHV_REPO_PATH: repoPath,
+  GV_REPO_PATH: repoPath,
   NUXT_REPO_PATH: repoPath,
-  GHV_FILE_PATH: filePath,
+  GV_FILE_PATH: filePath,
   NUXT_FILE_PATH: filePath,
   PORT: String(port),
   HOST: host,
@@ -95,7 +104,7 @@ const url = `http://${host}:${port}`
 const repoName = basename(repoPath)
 const repoDir = dirname(repoPath)
 
-console.log(`${c.bold(c.cyan('ghv'))} ${c.bold(repoName)} ${c.dim(repoDir)}`)
+console.log(`${c.bold(c.cyan('gv'))} ${c.bold(repoName)} ${c.dim(repoDir)}`)
 if (filePath) console.log(`    ${c.dim('file')} ${filePath}`)
 
 let ready = false

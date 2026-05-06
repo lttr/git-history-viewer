@@ -6,14 +6,14 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   app: {
     head: {
-      title: 'ghv — git history viewer',
+      title: 'gv — git history viewer',
       meta: [{ name: 'color-scheme', content: 'dark' }],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
   },
   runtimeConfig: {
-    repoPath: process.env.GHV_REPO_PATH || process.cwd(),
-    filePath: process.env.GHV_FILE_PATH || '',
+    repoPath: process.env.GV_REPO_PATH || process.cwd(),
+    filePath: process.env.GV_FILE_PATH || '',
   },
   nitro: {
     preset: 'node-server',

@@ -8,8 +8,8 @@ const store = useViewerStore()
 
 const pageTitle = computed(() => {
   const ctx = store.context
-  if (!ctx?.repo) return 'ghv — git history viewer'
-  return ctx.branch ? `${ctx.repo} (${ctx.branch}) — ghv` : `${ctx.repo} — ghv`
+  if (!ctx?.repo) return 'gv — git history viewer'
+  return ctx.branch ? `${ctx.repo} (${ctx.branch}) — gv` : `${ctx.repo} — gv`
 })
 useHead({ title: pageTitle })
 

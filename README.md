@@ -6,25 +6,36 @@ Built on Nuxt 4 + Nitro + `simple-git` + `@git-diff-view/vue`.
 
 ## Install
 
+One-shot run inside a repo:
+
 ```bash
-pnpm install
-pnpm build
+npx @lttr/gv
+```
+
+Or install globally:
+
+```bash
+npm i -g @lttr/gv
+cd /path/to/repo
+gv
 ```
 
 ## Use
 
-Point at any git repo via `GHV_REPO_PATH`:
-
 ```bash
-GHV_REPO_PATH=/path/to/repo node bin/ghv.mjs
+gv                     # serve current repo
+gv path/to/file.ts     # preselect a file
+GV_REPO_PATH=/repo gv  # explicit repo path
 ```
 
-Defaults to `process.cwd()` if unset. Opens `http://127.0.0.1:3434` in your browser.
+Picks a free port starting at `3434`, binds `127.0.0.1`, opens default browser.
 
 ## Develop
 
 ```bash
-GHV_REPO_PATH=/path/to/repo pnpm dev
+pnpm install
+pnpm build
+GV_REPO_PATH=/path/to/repo pnpm dev
 ```
 
 Dev server on `http://localhost:3000`.
@@ -60,9 +71,9 @@ Pseudo-rows at the top of the commit list show **Unstaged changes** (working tre
 
 - `app/` — pages, components, Pinia store (`stores/viewer.ts`)
 - `server/api/` — Nitro routes
-- `server/utils/git.ts` — `simple-git` singleton, rooted at `GHV_REPO_PATH`
+- `server/utils/git.ts` — `simple-git` singleton, rooted at `GV_REPO_PATH`
 - `server/utils/cache.ts` — LRU for commit/diff payloads
-- `bin/ghv.mjs` — CLI entry, boots built Nitro and opens browser
+- `bin/gv.mjs` — CLI entry, boots built Nitro and opens browser
 
 ## API
 
@@ -81,7 +92,7 @@ Pseudo-rows at the top of the commit list show **Unstaged changes** (working tre
 
 | Var             | Default                      | Purpose          |
 | --------------- | ---------------------------- | ---------------- |
-| `GHV_REPO_PATH` | `process.cwd()`              | Target repo root |
+| `GV_REPO_PATH`  | `process.cwd()`              | Target repo root |
 | `PORT`          | `3434` (prod) / `3000` (dev) | HTTP port        |
 | `HOST`          | `127.0.0.1`                  | Bind host        |
 
