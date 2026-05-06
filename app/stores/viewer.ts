@@ -152,6 +152,12 @@ export const useViewerStore = defineStore('viewer', {
     changesSummary: { unstaged: 0, staged: 0 } as { unstaged: number; staged: number },
     selectedChanges: '' as ChangesKind | '',
     focusPath: '' as string,
+    initialSnapshot: null as null | {
+      range: string
+      focus: string
+      shas: string[]
+      changes: ChangesKind | ''
+    },
   }),
   getters: {
     isMulti(): boolean {
@@ -195,12 +201,49 @@ export const useViewerStore = defineStore('viewer', {
       } else if (this.commits[0]) {
         await this.selectCommit(this.commits[0].hash)
       }
+      this.initialSnapshot = {
+        range: this.range,
+        focus: this.focusPath,
+        shas: [...this.selectedShas],
+        changes: this.selectedChanges,
+      }
       if (typeof window !== 'undefined') {
         window.addEventListener('popstate', () => {
           if (suppressPopstate) return
           this.syncFromUrl()
         })
       }
+    },
+    async resetView() {
+      const snap = this.initialSnapshot
+      if (!snap) return
+      this.range = snap.range
+      this.focusPath = snap.focus
+      this.rangeError = ''
+      this.commits = []
+      this.commitsDone = false
+      this.commitDetail = null
+      this.diffs = null
+      this.selectedSha = ''
+      this.selectedShas = []
+      this.lastPivotSha = ''
+      this.selectedFile = ''
+      this.selectedChanges = ''
+      commitCache.clear()
+      writeUrl(
+        { range: snap.range, focus: snap.focus, shas: [], changes: '', file: '' },
+        'push',
+      )
+      await Promise.all([
+        this.loadMore({ autoSelect: false }),
+        this.refreshChanges(),
+      ])
+      if (snap.changes) await this.selectChanges(snap.changes)
+      else if (snap.shas.length > 1) await this.setMultiSelection(snap.shas)
+      else if (snap.shas.length === 1) await this.selectCommit(snap.shas[0])
+      else if (this.changesSummary.unstaged > 0) await this.selectChanges('unstaged')
+      else if (this.changesSummary.staged > 0) await this.selectChanges('staged')
+      else if (this.commits[0]) await this.selectCommit(this.commits[0].hash)
     },
     async resolveSha(s: string): Promise<string> {
       if (!/^[0-9a-f]{4,64}$/i.test(s)) return ''
