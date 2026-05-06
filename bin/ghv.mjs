@@ -1,9 +1,26 @@
 #!/usr/bin/env node
 import { execSync, spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import open from 'open'
+
+function isPortFree(port, host) {
+  return new Promise((resolvePromise) => {
+    const srv = createServer()
+    srv.once('error', () => resolvePromise(false))
+    srv.once('listening', () => srv.close(() => resolvePromise(true)))
+    srv.listen(port, host)
+  })
+}
+
+async function findFreePort(start, host, maxTries = 100) {
+  for (let p = start; p < start + maxTries; p++) {
+    if (await isPortFree(p, host)) return p
+  }
+  throw new Error(`no free port in ${start}..${start + maxTries - 1}`)
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkgRoot = resolve(__dirname, '..')
@@ -39,8 +56,21 @@ if (argFile) {
 }
 
 const repoPath = resolve(process.env.GHV_REPO_PATH || cwdForRepo)
-const port = Number(process.env.PORT || 3434)
 const host = process.env.HOST || '127.0.0.1'
+const portExplicit = !!(process.env.PORT || process.env.NITRO_PORT)
+const basePort = Number(process.env.PORT || process.env.NITRO_PORT || 3434)
+let port = basePort
+if (!portExplicit) {
+  try {
+    port = await findFreePort(basePort, host)
+  } catch (err) {
+    console.error('[ghv]', err.message)
+    process.exit(1)
+  }
+} else if (!(await isPortFree(basePort, host))) {
+  console.error(`[ghv] port ${basePort} in use on ${host}`)
+  process.exit(1)
+}
 
 const env = {
   ...process.env,
