@@ -33,16 +33,18 @@ function splitPatchByFile(raw: string): Map<string, string> {
 
 export default defineEventHandler(async (event) => {
   const sha = assertSha(getRouterParam(event, 'sha'))
+  const path = readPath(getQuery(event))
+  const key = path ? `${sha}::${path}` : sha
 
-  const hit = cache.get(sha)
+  const hit = cache.get(key)
   if (hit) return hit
 
   const git = useGit()
 
   const [parentsRaw, nameStatusRaw, patchRaw] = await Promise.all([
     git.raw(['rev-list', '--parents', '-n', '1', sha]),
-    git.raw(['show', '--format=', '--name-status', '-m', '--first-parent', sha]),
-    git.raw(['show', '--format=', '-m', '--first-parent', sha]),
+    git.raw(withPath(['show', '--format=', '--name-status', '-m', '--first-parent', sha], path)),
+    git.raw(withPath(['show', '--format=', '-m', '--first-parent', sha], path)),
   ])
 
   const parent = parentsRaw.trim().split(' ').slice(1)[0]
@@ -86,6 +88,6 @@ export default defineEventHandler(async (event) => {
   }))
 
   const payload: DiffsPayload = { sha, parent, files: results }
-  cache.set(sha, payload)
+  cache.set(key, payload)
   return payload
 })

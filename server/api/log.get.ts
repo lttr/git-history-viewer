@@ -6,6 +6,7 @@ export default defineEventHandler(async (event) => {
 
   const git = useGit()
 
+  const filePath = readPath(q)
   const args = [
     'log',
     `--max-count=${limit}`,
@@ -17,6 +18,7 @@ export default defineEventHandler(async (event) => {
     assertRangeTokens(tokens)
     args.push(...tokens)
   }
+  if (filePath) args.push('--', filePath)
 
   let raw = ''
   try {

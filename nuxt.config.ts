@@ -12,6 +12,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     repoPath: process.env.GHV_REPO_PATH || process.cwd(),
+    filePath: process.env.GHV_FILE_PATH || '',
   },
   nitro: {
     preset: 'node-server',

@@ -51,7 +51,8 @@ export default defineEventHandler(async (event) => {
   const to = ordered[0]
   const from = ordered[ordered.length - 1]
 
-  const cacheKey = [...ordered].sort().join(',')
+  const path = readPath(q)
+  const cacheKey = [...ordered].sort().join(',') + (path ? `::${path}` : '')
   const hit = cache.get(cacheKey)
   if (hit) return hit
 
@@ -66,8 +67,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const [nameStatusRaw, patchRaw] = await Promise.all([
-    git.raw(['diff', '--name-status', `${base}..${to}`]),
-    git.raw(['diff', `${base}..${to}`]),
+    git.raw(withPath(['diff', '--name-status', `${base}..${to}`], path)),
+    git.raw(withPath(['diff', `${base}..${to}`], path)),
   ])
 
   const files = parseNameStatus(nameStatusRaw)

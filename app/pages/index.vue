@@ -105,9 +105,9 @@ function stepFile(delta: number) {
 </script>
 
 <template>
-  <div class="layout">
+  <div class="layout" :class="{ focused: !!store.focusPath }">
     <CommitList class="pane pane-commits" />
-    <FileTree class="pane pane-files" />
+    <FileTree v-if="!store.focusPath" class="pane pane-files" />
     <DiffView class="pane pane-diff" />
     <HotkeyHelp />
   </div>
@@ -119,6 +119,9 @@ function stepFile(delta: number) {
   grid-template-columns: 320px 280px 1fr;
   height: 100vh;
   width: 100vw;
+}
+.layout.focused {
+  grid-template-columns: 320px 1fr;
 }
 .pane { height: 100vh; overflow: hidden; min-width: 0; }
 </style>

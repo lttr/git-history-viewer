@@ -92,6 +92,7 @@ function toggle(path: string) {
           :selected="store.selectedFile"
           @toggle="toggle"
           @select="(p: string) => store.selectFile(p)"
+          @focus="(p: string) => store.setFocus(p)"
         />
       </template>
       <div v-else class="empty">Select a commit</div>

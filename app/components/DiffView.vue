@@ -144,7 +144,6 @@ watch(
 watch(
   () => [store.selectedSha, store.selectedChanges] as const,
   () => {
-    expanded.value = new Set()
     showDeleted.value = new Set()
     forceLoaded.value = new Set()
     nextTick(() => scrollEl.value?.scrollTo({ top: 0 }))
@@ -160,6 +159,7 @@ watch(
       eager.add(files[i].path)
     }
     renderedFiles.value = eager
+    expanded.value = new Set(files.map((f) => f.path))
   },
   { immediate: true },
 )
@@ -222,7 +222,10 @@ function scrollToFileForce(path: string) {
   <div class="diff-pane">
     <div class="header">
       <span class="path">
-        <template v-if="store.isChanges">
+        <template v-if="store.focusPath">
+          <span class="active-file">{{ store.focusPath }}</span>
+        </template>
+        <template v-else-if="store.isChanges">
           {{ store.selectedChanges === 'staged' ? 'Staged' : 'Unstaged' }} · {{ store.diffs?.files.length ?? 0 }} files
         </template>
         <template v-else-if="store.isMulti">
@@ -231,11 +234,11 @@ function scrollToFileForce(path: string) {
         <template v-else>
           {{ store.commitDetail ? `${store.commitDetail.files.length} files` : '—' }}
         </template>
-        <span v-if="store.selectedFile" class="active-file">· {{ store.selectedFile }}</span>
+        <span v-if="!store.focusPath && store.selectedFile" class="active-file">· {{ store.selectedFile }}</span>
       </span>
       <div class="header-actions">
         <button
-          v-if="store.diffs && store.diffs.files.length"
+          v-if="!store.focusPath && store.diffs && store.diffs.files.length > 1"
           :title="allExpanded ? 'Collapse all files' : 'Expand all files'"
           @click="toggleExpandAll"
         >

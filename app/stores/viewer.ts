@@ -4,9 +4,13 @@ import { nextTick } from 'vue'
 let selectFetchId = 0
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
 const MAX_CACHE = 100
-function cacheSet(sha: string, value: { detail: CommitDetail; diffs: DiffsPayload }) {
-  if (commitCache.has(sha)) commitCache.delete(sha)
-  commitCache.set(sha, value)
+function cacheKey(sha: string, focus: string) {
+  return focus ? `${focus}::${sha}` : sha
+}
+function cacheSet(sha: string, focus: string, value: { detail: CommitDetail; diffs: DiffsPayload }) {
+  const k = cacheKey(sha, focus)
+  if (commitCache.has(k)) commitCache.delete(k)
+  commitCache.set(k, value)
   if (commitCache.size > MAX_CACHE) {
     const first = commitCache.keys().next().value
     if (first !== undefined) commitCache.delete(first)
@@ -62,6 +66,7 @@ export interface RepoContext {
   defaultRange: string
   head: string
   repo: string
+  filePath: string
 }
 
 export type ChangesKind = 'staged' | 'unstaged'
@@ -71,11 +76,12 @@ interface UrlState {
   range: string
   shas: string[]
   file: string
+  focus: string
   changes: ChangesKind | ''
 }
 
 function readUrl(): UrlState {
-  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', changes: '' }
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '' }
   const p = new URLSearchParams(window.location.search)
   const shaRaw = p.get('sha') ?? ''
   const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
@@ -86,6 +92,7 @@ function readUrl(): UrlState {
     range: p.get('range') ?? '',
     shas,
     file: p.get('file') ?? '',
+    focus: p.get('focus') ?? '',
     changes,
   }
 }
@@ -107,6 +114,7 @@ function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace'
   }
   if (patch.changes !== undefined) setOrDel('changes', patch.changes)
   if (patch.file !== undefined) setOrDel('file', patch.file)
+  if (patch.focus !== undefined) setOrDel('focus', patch.focus)
   url.hash = ''
   const target = url.toString()
   if (target === window.location.href) return
@@ -143,6 +151,7 @@ export const useViewerStore = defineStore('viewer', {
     diffMode: 'split' as 'split' | 'unified',
     changesSummary: { unstaged: 0, staged: 0 } as { unstaged: number; staged: number },
     selectedChanges: '' as ChangesKind | '',
+    focusPath: '' as string,
   }),
   getters: {
     isMulti(): boolean {
@@ -163,7 +172,8 @@ export const useViewerStore = defineStore('viewer', {
       }
       const urlState = readUrl()
       this.range = urlState.range || this.context.defaultRange
-      writeUrl({ repo: this.context.repo, range: this.range })
+      this.focusPath = urlState.focus || this.context.filePath || ''
+      writeUrl({ repo: this.context.repo, range: this.range, focus: this.focusPath })
       await Promise.all([
         this.loadMore({ autoSelect: false }),
         this.refreshChanges(),
@@ -197,13 +207,20 @@ export const useViewerStore = defineStore('viewer', {
       const hit = this.commits.find((c) => c.hash.startsWith(s))
       if (hit) return hit.hash
       try {
-        const detail = await $fetch<{ hash: string }>(`/api/commit/${s}`)
+        const detail = await $fetch<{ hash: string }>(`/api/commit/${s}`, {
+          query: this.focusPath ? { path: this.focusPath } : {},
+        })
         return detail.hash
       } catch { return '' }
     },
     async syncFromUrl() {
       const s = readUrl()
-      if (s.range !== this.range) {
+      const focusChanged = s.focus !== this.focusPath
+      if (focusChanged) {
+        this.focusPath = s.focus
+        commitCache.clear()
+      }
+      if (s.range !== this.range || focusChanged) {
         this.range = s.range
         await this.reloadCommits()
       }
@@ -215,6 +232,24 @@ export const useViewerStore = defineStore('viewer', {
       const filtered = resolved.filter((x): x is string => !!x)
       if (filtered.length > 1) await this.setMultiSelection(filtered, s.file)
       else if (filtered.length === 1) await this.selectCommit(filtered[0], s.file)
+    },
+    async setFocus(path: string) {
+      const next = (path || '').trim()
+      if (next === this.focusPath) return
+      this.focusPath = next
+      commitCache.clear()
+      writeUrl({ focus: next, shas: [], changes: '', file: '' }, 'push')
+      this.commitDetail = null
+      this.diffs = null
+      this.selectedSha = ''
+      this.selectedShas = []
+      this.lastPivotSha = ''
+      this.selectedFile = ''
+      this.selectedChanges = ''
+      await Promise.all([this.reloadCommits(), this.refreshChanges()])
+    },
+    async clearFocus() {
+      await this.setFocus('')
     },
     async setRange(range: string) {
       this.range = range.trim()
@@ -237,7 +272,9 @@ export const useViewerStore = defineStore('viewer', {
     },
     async refreshChanges() {
       try {
-        this.changesSummary = await $fetch<{ unstaged: number; staged: number }>('/api/changes')
+        this.changesSummary = await $fetch<{ unstaged: number; staged: number }>('/api/changes', {
+          query: this.focusPath ? { path: this.focusPath } : {},
+        })
       } catch {
         this.changesSummary = { unstaged: 0, staged: 0 }
       }
@@ -254,6 +291,7 @@ export const useViewerStore = defineStore('viewer', {
       try {
         const payload = await $fetch<{ kind: ChangesKind; files: FileDiff[] }>(
           `/api/changes/${kind}`,
+          { query: this.focusPath ? { path: this.focusPath } : {} },
         )
         if (my !== selectFetchId) return
         this.diffs = { sha: '', parent: '', files: payload.files }
@@ -274,7 +312,12 @@ export const useViewerStore = defineStore('viewer', {
       this.commitsLoading = true
       try {
         const data = await $fetch<Commit[]>('/api/log', {
-          query: { skip: this.commits.length, limit: 200, range: this.range },
+          query: {
+            skip: this.commits.length,
+            limit: 200,
+            range: this.range,
+            ...(this.focusPath ? { path: this.focusPath } : {}),
+          },
         })
         if (!data.length) this.commitsDone = true
         this.commits.push(...data)
@@ -313,19 +356,21 @@ export const useViewerStore = defineStore('viewer', {
         if (doc?.startViewTransition) doc.startViewTransition(apply)
         else apply()
       }
-      const cached = commitCache.get(sha)
+      const focus = this.focusPath
+      const cached = commitCache.get(cacheKey(sha, focus))
       if (cached) {
         applyWithTransition(cached.detail, cached.diffs)
         return
       }
       this.diffsLoading = true
       try {
+        const q = focus ? { path: focus } : {}
         const [detail, diffs] = await Promise.all([
-          $fetch<CommitDetail>(`/api/commit/${sha}`),
-          $fetch<DiffsPayload>(`/api/diffs/${sha}`),
+          $fetch<CommitDetail>(`/api/commit/${sha}`, { query: q }),
+          $fetch<DiffsPayload>(`/api/diffs/${sha}`, { query: q }),
         ])
         if (my !== selectFetchId) return
-        cacheSet(sha, { detail, diffs })
+        cacheSet(sha, focus, { detail, diffs })
         applyWithTransition(detail, diffs)
       } finally {
         if (my === selectFetchId) this.diffsLoading = false
@@ -349,7 +394,10 @@ export const useViewerStore = defineStore('viewer', {
       this.diffsLoading = true
       try {
         const payload = await $fetch<DiffsRangePayload>('/api/diffs-range', {
-          query: { shas: unique.join(',') },
+          query: {
+            shas: unique.join(','),
+            ...(this.focusPath ? { path: this.focusPath } : {}),
+          },
         })
         if (my !== selectFetchId) return
         this.commitDetail = null
@@ -393,11 +441,13 @@ export const useViewerStore = defineStore('viewer', {
       await this.setMultiSelection(range)
     },
     prefetch(sha: string) {
-      if (commitCache.has(sha)) return
+      const focus = this.focusPath
+      if (commitCache.has(cacheKey(sha, focus))) return
+      const q = focus ? { path: focus } : {}
       Promise.all([
-        $fetch<CommitDetail>(`/api/commit/${sha}`),
-        $fetch<DiffsPayload>(`/api/diffs/${sha}`),
-      ]).then(([detail, diffs]) => cacheSet(sha, { detail, diffs })).catch(() => {})
+        $fetch<CommitDetail>(`/api/commit/${sha}`, { query: q }),
+        $fetch<DiffsPayload>(`/api/diffs/${sha}`, { query: q }),
+      ]).then(([detail, diffs]) => cacheSet(sha, focus, { detail, diffs })).catch(() => {})
     },
     selectFile(path: string) {
       this.skipNextScroll = false

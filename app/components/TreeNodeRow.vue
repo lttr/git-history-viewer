@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [path: string]
   select: [path: string]
+  focus: [path: string]
 }>()
 
 const statusColor: Record<string, string> = {
@@ -42,6 +43,13 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
     >
       <span class="icon">·</span>
       <span class="name">{{ node.name }}</span>
+      <button
+        class="focus-btn"
+        title="Focus history of this file"
+        @click.stop="emit('focus', node.file!.path)"
+      >
+        ⤢
+      </button>
       <span class="badge" :style="{ color: statusColor[node.file.status] || 'var(--fg-dim)' }">
         {{ node.file.status }}
       </span>
@@ -62,6 +70,7 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
         :selected="selected"
         @toggle="(p) => emit('toggle', p)"
         @select="(p) => emit('select', p)"
+        @focus="(p) => emit('focus', p)"
       />
     </template>
   </template>
@@ -97,4 +106,17 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
   font-weight: 700;
 }
 .file-tree .row.dir .name { color: var(--fg-dim); }
+.file-tree .row .focus-btn {
+  visibility: hidden;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-dim);
+  padding: 0 4px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1;
+}
+.file-tree .row:hover .focus-btn { visibility: visible; }
+.file-tree .row .focus-btn:hover { color: #ffcc66; border-color: var(--border); background: var(--bg); }
 </style>

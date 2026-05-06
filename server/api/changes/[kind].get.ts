@@ -37,13 +37,14 @@ export default defineEventHandler(async (event): Promise<Payload> => {
   const git = useGit()
   const cfg = useRuntimeConfig()
   const repoPath = cfg.repoPath as string
+  const path = readPath(getQuery(event))
 
   const isStaged = kind === 'staged'
   const baseArgs = isStaged ? ['diff', '--cached'] : ['diff']
 
   const [nameStatusRaw, patchRaw] = await Promise.all([
-    git.raw([...baseArgs, '--name-status']).catch(() => ''),
-    git.raw([...baseArgs]).catch(() => ''),
+    git.raw(withPath([...baseArgs, '--name-status'], path)).catch(() => ''),
+    git.raw(withPath([...baseArgs], path)).catch(() => ''),
   ])
 
   const tracked = parseNameStatus(nameStatusRaw)
