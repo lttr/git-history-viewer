@@ -65,17 +65,7 @@ async function useAll() {
     <template v-else>
       <div class="labels">
         <span v-if="store.context" class="branch">{{ store.context.branch || 'detached' }}</span>
-        <button
-          v-if="store.focusPath"
-          class="file-chip"
-          :title="`File focus: ${store.focusPath} (click to exit)`"
-          @click="store.clearFocus()"
-        >
-          <span class="ico">📄</span>
-          <span class="path-text">{{ store.focusPath }}</span>
-          <span class="x">✕</span>
-        </button>
-        <span class="count">· {{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
+        <span class="count">{{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits</span>
       </div>
       <div class="spacer" />
       <button
@@ -83,7 +73,7 @@ async function useAll() {
         :title="`Range: ${store.range || 'HEAD'} (click to edit)`"
         @click="startEdit"
       >
-        ✎ {{ store.range || 'HEAD' }}
+        {{ store.range || 'HEAD' }}
       </button>
       <div class="actions">
         <button
@@ -96,6 +86,15 @@ async function useAll() {
         </button>
         <button v-if="!store.focusPath" :disabled="!store.range" title="Show full history" @click="useAll">all</button>
       </div>
+      <button
+        v-if="store.focusPath"
+        class="file-chip"
+        :title="`File focus: ${store.focusPath} (click to exit)`"
+        @click="store.clearFocus()"
+      >
+        <span class="path-text">{{ store.focusPath }}</span>
+        <span class="x">x</span>
+      </button>
     </template>
     <div v-if="store.rangeError" class="err">{{ store.rangeError }}</div>
   </div>
@@ -126,7 +125,9 @@ async function useAll() {
 .file-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  flex: 1 1 100%;
+  min-width: 0;
   font: inherit;
   font-family: var(--mono);
   font-size: 10px;
@@ -135,17 +136,18 @@ async function useAll() {
   border: 1px solid var(--border);
   border-radius: 3px;
   padding: 2px 6px;
-  max-width: 360px;
   cursor: pointer;
 }
 .file-chip:hover { border-color: #ffcc66; color: #ffcc66; }
 .file-chip .path-text {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 280px;
+  text-align: left;
 }
-.file-chip .x { color: var(--fg-dim); font-size: 11px; }
+.file-chip .x { color: var(--fg-dim); font-size: 10px; flex-shrink: 0; }
 .file-chip:hover .x { color: #ffcc66; }
 .count { color: var(--fg-dim); }
 .spacer { flex: 1; min-width: 0; }
