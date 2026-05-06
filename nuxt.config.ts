@@ -6,8 +6,9 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   app: {
     head: {
-      title: 'ghv',
+      title: 'ghv — git history viewer',
       meta: [{ name: 'color-scheme', content: 'dark' }],
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
   },
   runtimeConfig: {

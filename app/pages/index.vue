@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 import { helpOpen } from '~/stores/ui'
 import { comparePath } from '~/utils/comparePath'
 
 const store = useViewerStore()
+
+const pageTitle = computed(() => {
+  const ctx = store.context
+  if (!ctx?.repo) return 'ghv — git history viewer'
+  return ctx.branch ? `${ctx.repo} (${ctx.branch}) — ghv` : `${ctx.repo} — ghv`
+})
+useHead({ title: pageTitle })
 
 watch(
   () => store.selectedSha,
