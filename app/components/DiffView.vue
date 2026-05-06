@@ -95,6 +95,20 @@ function toggleDeleted(path: string) {
   showDeleted.value = next
 }
 
+const allExpanded = computed(() => {
+  const files = orderedFiles.value
+  return files.length > 0 && files.every((f) => expanded.value.has(f.path))
+})
+function toggleExpandAll() {
+  if (allExpanded.value) {
+    expanded.value = new Set()
+  } else {
+    const next = new Set<string>()
+    for (const f of orderedFiles.value) next.add(f.path)
+    expanded.value = next
+  }
+}
+
 let ioJustSet = ''
 let programmaticScroll = false
 let programmaticScrollTimeout: ReturnType<typeof setTimeout> | null = null
@@ -219,9 +233,18 @@ function scrollToFileForce(path: string) {
         </template>
         <span v-if="store.selectedFile" class="active-file">· {{ store.selectedFile }}</span>
       </span>
-      <button @click="store.toggleDiffMode()">
-        {{ store.diffMode === 'split' ? 'Side-by-side' : 'Unified' }}
-      </button>
+      <div class="header-actions">
+        <button
+          v-if="store.diffs && store.diffs.files.length"
+          :title="allExpanded ? 'Collapse all files' : 'Expand all files'"
+          @click="toggleExpandAll"
+        >
+          {{ allExpanded ? 'Collapse all' : 'Expand all' }}
+        </button>
+        <button @click="store.toggleDiffMode()">
+          {{ store.diffMode === 'split' ? 'Side-by-side' : 'Unified' }}
+        </button>
+      </div>
     </div>
     <div ref="scrollEl" class="body">
       <div v-if="!store.diffs" class="state">
@@ -383,6 +406,11 @@ function scrollToFileForce(path: string) {
   font-family: var(--mono);
   color: var(--fg-dim);
   margin-left: 4px;
+}
+.header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .body {
   flex: 1;
