@@ -64,23 +64,29 @@ export interface RepoContext {
   repo: string
 }
 
+export type ChangesKind = 'staged' | 'unstaged'
+
 interface UrlState {
   repo: string
   range: string
   shas: string[]
   file: string
+  changes: ChangesKind | ''
 }
 
 function readUrl(): UrlState {
-  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '' }
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', changes: '' }
   const p = new URLSearchParams(window.location.search)
   const shaRaw = p.get('sha') ?? ''
   const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
+  const ch = p.get('changes') ?? ''
+  const changes: ChangesKind | '' = ch === 'staged' || ch === 'unstaged' ? ch : ''
   return {
     repo: p.get('repo') ?? '',
     range: p.get('range') ?? '',
     shas,
     file: p.get('file') ?? '',
+    changes,
   }
 }
 
@@ -99,6 +105,7 @@ function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace'
     const joined = patch.shas.map((s) => s.slice(0, 8)).join(',')
     setOrDel('sha', joined)
   }
+  if (patch.changes !== undefined) setOrDel('changes', patch.changes)
   if (patch.file !== undefined) setOrDel('file', patch.file)
   url.hash = ''
   const target = url.toString()
@@ -134,10 +141,15 @@ export const useViewerStore = defineStore('viewer', {
     selectedFile: '' as string,
     skipNextScroll: false,
     diffMode: 'split' as 'split' | 'unified',
+    changesSummary: { unstaged: 0, staged: 0 } as { unstaged: number; staged: number },
+    selectedChanges: '' as ChangesKind | '',
   }),
   getters: {
     isMulti(): boolean {
       return this.selectedShas.length > 1
+    },
+    isChanges(): boolean {
+      return !!this.selectedChanges
     },
     selectedCommits(): Commit[] {
       const set = new Set(this.selectedShas)
@@ -152,8 +164,13 @@ export const useViewerStore = defineStore('viewer', {
       const urlState = readUrl()
       this.range = urlState.range || this.context.defaultRange
       writeUrl({ repo: this.context.repo, range: this.range })
-      await this.loadMore({ autoSelect: false })
-      if (urlState.shas.length) {
+      await Promise.all([
+        this.loadMore({ autoSelect: false }),
+        this.refreshChanges(),
+      ])
+      if (urlState.changes) {
+        await this.selectChanges(urlState.changes, urlState.file)
+      } else if (urlState.shas.length) {
         const resolved = await Promise.all(urlState.shas.map((s) => this.resolveSha(s)))
         const filtered = resolved.filter((x): x is string => !!x)
         if (filtered.length > 1) await this.setMultiSelection(filtered, urlState.file)
@@ -184,6 +201,10 @@ export const useViewerStore = defineStore('viewer', {
         this.range = s.range
         await this.reloadCommits()
       }
+      if (s.changes) {
+        await this.selectChanges(s.changes, s.file)
+        return
+      }
       const resolved = await Promise.all(s.shas.map((x) => this.resolveSha(x)))
       const filtered = resolved.filter((x): x is string => !!x)
       if (filtered.length > 1) await this.setMultiSelection(filtered, s.file)
@@ -197,14 +218,49 @@ export const useViewerStore = defineStore('viewer', {
     async reloadCommits() {
       this.commits = []
       this.commitsDone = false
-      this.commitDetail = null
-      this.diffs = null
+      this.rangeError = ''
+      if (!this.selectedChanges) {
+        this.commitDetail = null
+        this.diffs = null
+        this.selectedSha = ''
+        this.selectedShas = []
+        this.lastPivotSha = ''
+        this.selectedFile = ''
+      }
+      await this.loadMore({ autoSelect: !this.selectedChanges })
+    },
+    async refreshChanges() {
+      try {
+        this.changesSummary = await $fetch<{ unstaged: number; staged: number }>('/api/changes')
+      } catch {
+        this.changesSummary = { unstaged: 0, staged: 0 }
+      }
+    },
+    async selectChanges(kind: ChangesKind, preferFile = '') {
+      this.selectedChanges = kind
       this.selectedSha = ''
       this.selectedShas = []
       this.lastPivotSha = ''
-      this.selectedFile = ''
-      this.rangeError = ''
-      await this.loadMore()
+      this.commitDetail = null
+      writeUrl({ changes: kind, shas: [] }, 'push')
+      const my = ++selectFetchId
+      this.diffsLoading = true
+      try {
+        const payload = await $fetch<{ kind: ChangesKind; files: FileDiff[] }>(
+          `/api/changes/${kind}`,
+        )
+        if (my !== selectFetchId) return
+        this.diffs = { sha: '', parent: '', files: payload.files }
+        const picked = preferFile && payload.files.some((f) => f.path === preferFile)
+          ? preferFile
+          : payload.files[0]?.path ?? ''
+        this.skipNextScroll = picked === (payload.files[0]?.path ?? '')
+        this.selectedFile = picked
+        writeUrl({ file: this.selectedFile })
+        this.refreshChanges()
+      } finally {
+        if (my === selectFetchId) this.diffsLoading = false
+      }
     },
     async loadMore(opts: { autoSelect?: boolean } = {}) {
       const autoSelect = opts.autoSelect ?? true
@@ -227,10 +283,11 @@ export const useViewerStore = defineStore('viewer', {
       }
     },
     async selectCommit(sha: string, preferFile = '') {
+      this.selectedChanges = ''
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
-      writeUrl({ shas: [sha] }, 'push')
+      writeUrl({ shas: [sha], changes: '' }, 'push')
       const my = ++selectFetchId
       const pickFile = (files: { path: string }[]) => {
         if (preferFile && files.some((f) => f.path === preferFile)) return preferFile
@@ -275,12 +332,13 @@ export const useViewerStore = defineStore('viewer', {
         await this.selectCommit(unique[0], preferFile)
         return
       }
+      this.selectedChanges = ''
       this.selectedShas = unique
       this.selectedSha = unique[0]
       if (!this.lastPivotSha || !unique.includes(this.lastPivotSha)) {
         this.lastPivotSha = unique[0]
       }
-      writeUrl({ shas: unique }, 'push')
+      writeUrl({ shas: unique, changes: '' }, 'push')
       const my = ++selectFetchId
       this.diffsLoading = true
       try {

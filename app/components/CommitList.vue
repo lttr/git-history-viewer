@@ -35,12 +35,53 @@ function onClick(e: MouseEvent, sha: string) {
 function isSelected(hash: string) {
   return store.selectedShas.includes(hash)
 }
+
+function selectChanges(kind: 'staged' | 'unstaged') {
+  store.selectChanges(kind)
+}
+function refreshChanges(e: MouseEvent, kind: 'staged' | 'unstaged') {
+  e.stopPropagation()
+  if (store.selectedChanges === kind) store.selectChanges(kind)
+  else store.refreshChanges()
+}
 </script>
 
 <template>
   <div class="commit-list">
     <RangeBar />
     <div ref="scrollEl" class="scroll">
+      <div
+        v-if="store.changesSummary.unstaged > 0"
+        class="row ch-row"
+        :class="{ active: store.selectedChanges === 'unstaged', primary: store.selectedChanges === 'unstaged' }"
+        @click="selectChanges('unstaged')"
+      >
+        <div class="subject">
+          <span class="ch-dot unstaged" />
+          Unstaged changes
+        </div>
+        <div class="meta">
+          <span class="ch-tag">working tree</span>
+          <span class="ch-count">{{ store.changesSummary.unstaged }} file{{ store.changesSummary.unstaged === 1 ? '' : 's' }}</span>
+          <button class="ch-refresh" title="Refresh" @click="refreshChanges($event, 'unstaged')">↻</button>
+        </div>
+      </div>
+      <div
+        v-if="store.changesSummary.staged > 0"
+        class="row ch-row"
+        :class="{ active: store.selectedChanges === 'staged', primary: store.selectedChanges === 'staged' }"
+        @click="selectChanges('staged')"
+      >
+        <div class="subject">
+          <span class="ch-dot staged" />
+          Staged changes
+        </div>
+        <div class="meta">
+          <span class="ch-tag">index</span>
+          <span class="ch-count">{{ store.changesSummary.staged }} file{{ store.changesSummary.staged === 1 ? '' : 's' }}</span>
+          <button class="ch-refresh" title="Refresh" @click="refreshChanges($event, 'staged')">↻</button>
+        </div>
+      </div>
       <div
         v-for="c in store.commits"
         :key="c.hash"
@@ -119,4 +160,41 @@ function isSelected(hash: string) {
   color: var(--fg-dim);
   font-size: 11px;
 }
+.ch-row {
+  background: var(--bg);
+}
+.ch-row .subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.ch-dot.unstaged { background: #f28779; }
+.ch-dot.staged { background: #bae67e; }
+.ch-tag {
+  font-family: var(--mono);
+  color: #73d0ff;
+}
+.ch-count {
+  flex: 1;
+  color: var(--fg-dim);
+}
+.ch-refresh {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  width: 20px;
+  height: 18px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.ch-refresh:hover { color: var(--fg); border-color: var(--fg-dim); }
 </style>

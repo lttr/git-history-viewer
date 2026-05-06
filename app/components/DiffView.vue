@@ -128,7 +128,7 @@ watch(
 )
 
 watch(
-  () => store.selectedSha,
+  () => [store.selectedSha, store.selectedChanges] as const,
   () => {
     expanded.value = new Set()
     showDeleted.value = new Set()
@@ -208,7 +208,10 @@ function scrollToFileForce(path: string) {
   <div class="diff-pane">
     <div class="header">
       <span class="path">
-        <template v-if="store.isMulti">
+        <template v-if="store.isChanges">
+          {{ store.selectedChanges === 'staged' ? 'Staged' : 'Unstaged' }} · {{ store.diffs?.files.length ?? 0 }} files
+        </template>
+        <template v-else-if="store.isMulti">
           {{ store.selectedShas.length }} commits · {{ store.diffs?.files.length ?? 0 }} files
         </template>
         <template v-else>
@@ -226,7 +229,21 @@ function scrollToFileForce(path: string) {
       </div>
       <div v-else-if="!store.diffs.files.length" class="state">No files changed</div>
       <template v-else>
-        <div v-if="store.isMulti" class="commit-meta multi">
+        <div v-if="store.isChanges" class="commit-meta ch">
+          <div class="subject">
+            <span class="ch-dot" :class="store.selectedChanges" />
+            {{ store.selectedChanges === 'staged' ? 'Staged changes' : 'Unstaged changes' }}
+          </div>
+          <div class="meta-row">
+            <span class="ch-desc">
+              {{ store.selectedChanges === 'staged'
+                ? 'index vs HEAD'
+                : 'working tree vs index' }}
+            </span>
+            <span>{{ store.diffs?.files.length ?? 0 }} files</span>
+          </div>
+        </div>
+        <div v-else-if="store.isMulti" class="commit-meta multi">
           <div class="subject">{{ store.selectedShas.length }} commits aggregated</div>
           <ul class="commit-list-inline">
             <li v-for="c in store.selectedCommits" :key="c.hash">
@@ -569,5 +586,22 @@ function scrollToFileForce(path: string) {
   font-size: 11px;
   color: var(--fg-dim);
   flex: 0 0 auto;
+}
+.commit-meta.ch .subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.commit-meta.ch .ch-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.commit-meta.ch .ch-dot.unstaged { background: #f28779; }
+.commit-meta.ch .ch-dot.staged { background: #bae67e; }
+.commit-meta.ch .ch-desc {
+  font-family: var(--mono);
+  color: #73d0ff;
 }
 </style>

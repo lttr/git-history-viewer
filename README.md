@@ -48,8 +48,13 @@ Top bar filters commits by any git rev range (`main..HEAD`, `v1.0..HEAD`, `HEAD`
 
 - `#<short-hash>` — preselect commit
 - `?range=main..HEAD` — preset range
+- `?changes=staged` / `?changes=unstaged` — preselect uncommitted changes view
 
-Both are written back to the URL as you navigate.
+All are written back to the URL as you navigate.
+
+## Uncommitted changes
+
+Pseudo-rows at the top of the commit list show **Unstaged changes** (working tree vs index) and **Staged changes** (index vs HEAD) when present. Click ↻ on a row to refresh after staging files outside the app. Untracked files are not yet shown.
 
 ## Layout
 
@@ -69,6 +74,8 @@ Both are written back to the URL as you navigate.
 | `GET /api/diffs/:sha` | all file diffs for a commit (patch + old/new content) |
 | `GET /api/diff?sha&file` | single file diff |
 | `GET /api/diffs-range?shas=a,b,c` | aggregated diff across multiple commits |
+| `GET /api/changes` | counts of staged + unstaged changes |
+| `GET /api/changes/:kind` | diffs for `staged` or `unstaged` uncommitted changes |
 
 ## Env
 
@@ -82,4 +89,5 @@ Both are written back to the URL as you navigate.
 
 - Merge commits: diff is against first parent only
 - Large diffs (>3000 lines) render on demand via `Load diff` button; old/new full file content is loaded both sides (needed for syntax highlight)
-- No branch/tag picker, no file search, no working-tree view
+- No branch/tag picker, no file search
+- Uncommitted-changes view skips untracked files
