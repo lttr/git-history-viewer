@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 
 const store = useViewerStore()
@@ -7,11 +7,11 @@ const store = useViewerStore()
 const editing = ref(false)
 const draft = ref('')
 const inputEl = ref<HTMLInputElement | null>(null)
-const menuOpen = ref(false)
-const menuEl = ref<HTMLElement | null>(null)
 const refs = ref<{ branches: string[]; tags: string[] }>({ branches: [], tags: [] })
 let refsLoaded = false
 let settled = false
+
+const CUSTOM = '__custom__'
 
 async function ensureRefs() {
   if (refsLoaded) return
@@ -23,49 +23,26 @@ async function ensureRefs() {
   }
 }
 
-function toggleMenu() {
-  if (menuOpen.value) {
-    menuOpen.value = false
+async function onSelectChange(e: Event) {
+  const sel = e.target as HTMLSelectElement
+  const v = sel.value
+  if (v === CUSTOM) {
+    sel.value = store.range
+    startEdit()
     return
   }
-  ensureRefs()
-  menuOpen.value = true
+  if (v === store.range) return
+  await store.setRange(v)
 }
 
-async function pickRange(r: string) {
-  menuOpen.value = false
-  if (r === store.range) return
-  await store.setRange(r)
-}
-
-function pickCustom() {
-  menuOpen.value = false
-  startEdit()
-}
-
-function onDocClick(e: MouseEvent) {
-  if (!menuOpen.value) return
-  const t = e.target as Node
-  if (menuEl.value && !menuEl.value.contains(t)) menuOpen.value = false
-}
-
-onMounted(() => document.addEventListener('mousedown', onDocClick))
-onUnmounted(() => document.removeEventListener('mousedown', onDocClick))
-
-const rangeOptions = computed(() => {
-  const out: Array<{ label: string; value: string; hint?: string }> = [
-    { label: 'all history', value: '' },
-  ]
+const branchOptions = computed(() => {
   const cur = store.context?.branch || ''
-  for (const b of refs.value.branches) {
-    if (b === cur) continue
-    out.push({ label: `${b}..HEAD`, value: `${b}..HEAD`, hint: 'branch' })
-  }
-  for (const t of refs.value.tags.slice(0, 10)) {
-    out.push({ label: `${t}..HEAD`, value: `${t}..HEAD`, hint: 'tag' })
-  }
-  return out
+  return refs.value.branches.filter(b => b !== cur).map(b => `${b}..HEAD`)
 })
+const tagOptions = computed(() => refs.value.tags.slice(0, 20).map(t => `${t}..HEAD`))
+
+const knownValues = computed(() => new Set<string>(['', ...branchOptions.value, ...tagOptions.value]))
+const isCustomRange = computed(() => store.range !== '' && !knownValues.value.has(store.range))
 
 function startEdit() {
   draft.value = store.range
@@ -143,34 +120,24 @@ const canReset = computed(() => {
           </svg>
         </button>
         <div class="spacer" />
-        <div ref="menuEl" class="range-picker">
-        <button
-          class="icon-btn"
+        <select
+          class="range-select"
           :title="`Range: ${store.range || 'HEAD'}`"
-          :aria-expanded="menuOpen"
-          @click="toggleMenu"
+          :value="store.range"
+          @mousedown="ensureRefs"
+          @focus="ensureRefs"
+          @change="onSelectChange"
         >
-          {{ store.range || 'all history' }}
-          <span class="caret">▾</span>
-        </button>
-        <div v-if="menuOpen" class="menu" role="menu">
-          <button
-            v-for="opt in rangeOptions"
-            :key="opt.value || 'all'"
-            class="menu-item"
-            :class="{ active: store.range === opt.value }"
-            role="menuitem"
-            @click="pickRange(opt.value)"
-          >
-            <span class="menu-label">{{ opt.label }}</span>
-            <span v-if="opt.hint" class="menu-hint">{{ opt.hint }}</span>
-          </button>
-          <div class="menu-sep" />
-          <button class="menu-item" role="menuitem" @click="pickCustom">
-            <span class="menu-label">custom range…</span>
-          </button>
-        </div>
-        </div>
+          <option value="">all history</option>
+          <optgroup v-if="branchOptions.length" label="Branches">
+            <option v-for="b in branchOptions" :key="b" :value="b">{{ b }}</option>
+          </optgroup>
+          <optgroup v-if="tagOptions.length" label="Tags">
+            <option v-for="t in tagOptions" :key="t" :value="t">{{ t }}</option>
+          </optgroup>
+          <option v-if="isCustomRange" :value="store.range">{{ store.range }}</option>
+          <option :value="CUSTOM">custom range…</option>
+        </select>
       </div>
       <div class="labels">
         <span v-if="store.context" class="branch" :title="store.context.branch">{{ store.context.branch || 'detached' }}</span>
@@ -252,21 +219,31 @@ const canReset = computed(() => {
 .file-chip .x { color: var(--fg-dim); font-size: 10px; flex-shrink: 0; }
 .file-chip:hover .x { color: #ffcc66; }
 .spacer { flex: 1; min-width: 0; }
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
+.range-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--mono);
   font-size: 11px;
-  padding: 3px 8px;
+  padding: 3px 22px 3px 8px;
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 3px;
   cursor: pointer;
-  max-width: 240px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-dim) 50%),
+                    linear-gradient(135deg, var(--fg-dim) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  overflow: hidden;
 }
-.icon-btn:hover { border-color: var(--fg-dim); }
+.range-select:hover { border-color: var(--fg-dim); }
+.range-select:focus { outline: none; border-color: #ffcc66; }
 .home-btn {
   display: inline-flex;
   align-items: center;
@@ -296,44 +273,6 @@ const canReset = computed(() => {
   cursor: text;
   outline: none;
 }
-.range-picker { position: relative; display: inline-flex; flex-shrink: 0; }
-.range-picker .icon-btn { max-width: 100%; }
-.icon-btn .caret { color: var(--fg-dim); margin-left: 4px; font-size: 9px; }
-.menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 200px;
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  z-index: 10;
-  padding: 2px 0;
-}
-.menu-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  font-family: var(--mono);
-  font-size: 11px;
-  padding: 4px 10px;
-  background: transparent;
-  color: var(--fg);
-  border: none;
-  border-radius: 0;
-  cursor: pointer;
-  text-align: left;
-}
-.menu-item:hover { background: var(--bg-3); color: #ffcc66; }
-.menu-item.active { color: #ffcc66; font-weight: 600; }
-.menu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu-hint { color: var(--fg-dim); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
-.menu-sep { height: 1px; background: var(--border); margin: 2px 0; }
 .err {
   flex-basis: 100%;
   color: #f28779;
