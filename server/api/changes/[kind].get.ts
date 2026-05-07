@@ -1,6 +1,30 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+function isBinaryBuffer(buf: Buffer): boolean {
+  const n = Math.min(buf.length, 8192)
+  for (let i = 0; i < n; i++) if (buf[i] === 0) return true
+  return false
+}
+
+function buildAddedPatch(path: string, content: string): string {
+  const lines = content.length ? content.split('\n') : []
+  const hasTrailingNewline = content.endsWith('\n')
+  const bodyLines = hasTrailingNewline ? lines.slice(0, -1) : lines
+  const count = bodyLines.length
+  const header = [
+    `diff --git a/${path} b/${path}`,
+    'new file mode 100644',
+    '--- /dev/null',
+    `+++ b/${path}`,
+    `@@ -0,0 +1,${count} @@`,
+  ].join('\n')
+  const body = bodyLines.map((l) => '+' + l).join('\n')
+  let out = header + (count ? '\n' + body : '')
+  if (count && !hasTrailingNewline) out += '\n\\ No newline at end of file'
+  return out + '\n'
+}
+
 interface FileDiff {
   path: string
   oldPath?: string
@@ -50,7 +74,12 @@ export default defineEventHandler(async (event): Promise<Payload> => {
   const tracked = parseNameStatus(nameStatusRaw)
   const patchMap = splitPatchByFile(patchRaw)
 
-  const files = await Promise.all(tracked.map(async (f) => {
+  const untrackedPaths: string[] = !isStaged
+    ? (await git.raw(withPath(['ls-files', '--others', '--exclude-standard'], path)).catch(() => ''))
+        .split('\n').map((l) => l.trim()).filter(Boolean)
+    : []
+
+  const trackedFiles = await Promise.all(tracked.map(async (f) => {
     const patch = patchMap.get(f.path) ?? ''
     const isBinary = /^Binary files /m.test(patch) || patch.includes('GIT binary patch')
 
@@ -95,5 +124,20 @@ export default defineEventHandler(async (event): Promise<Payload> => {
     }
   }))
 
-  return { kind, files }
+  const untrackedFiles = await Promise.all(untrackedPaths.map(async (p) => {
+    let buf: Buffer | null = null
+    try { buf = await readFile(join(repoPath, p)) } catch { /* unreadable */ }
+    if (!buf) {
+      return { path: p, status: '?', patch: '', oldContent: '', newContent: '', isBinary: false }
+    }
+    const binary = isBinaryBuffer(buf)
+    if (binary) {
+      const patch = `diff --git a/${p} b/${p}\nnew file mode 100644\nBinary files /dev/null and b/${p} differ\n`
+      return { path: p, status: '?', patch, oldContent: '', newContent: '', isBinary: true }
+    }
+    const newContent = buf.toString('utf8')
+    return { path: p, status: '?', patch: buildAddedPatch(p, newContent), oldContent: '', newContent, isBinary: false }
+  }))
+
+  return { kind, files: [...trackedFiles, ...untrackedFiles] }
 })

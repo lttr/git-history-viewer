@@ -78,7 +78,7 @@ const mode = computed(() =>
 
 const statusColor: Record<string, string> = {
   A: '#bae67e', M: '#ffcc66', D: '#f28779',
-  R: '#73d0ff', C: '#d4bfff',
+  R: '#73d0ff', C: '#d4bfff', '?': '#bae67e',
 }
 
 function toggleExpanded(path: string) {
