@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync, spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { basename, dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,6 +30,42 @@ async function findFreePort(start, host, maxTries = 100) {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const pkgRoot = resolve(__dirname, '..')
 const entry = resolve(pkgRoot, '.output/server/index.mjs')
+
+const rawArgs = process.argv.slice(2)
+if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+  console.log(`gv — git history viewer in your browser
+
+Usage:
+  gv [file] [options]
+
+Arguments:
+  file                 Open a specific file's history (must be inside a git repo)
+
+Options:
+  -c, --comments <path>  Load inline review comments from a file
+  -h, --help             Show this help
+  -v, --version          Show version
+
+Environment:
+  GV_REPO_PATH         Repo to view (default: current directory)
+  PORT / NITRO_PORT    Port to use (default: 3434, auto-picks next free)
+  HOST                 Host to bind (default: 127.0.0.1)
+
+Examples:
+  gv                          View history of the current repo
+  gv src/index.ts             Open one file's history
+  gv --comments review.md     Show inline review comments`)
+  process.exit(0)
+}
+if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(pkgRoot, 'package.json'), 'utf8'))
+    console.log(pkg.version)
+  } catch {
+    console.log('unknown')
+  }
+  process.exit(0)
+}
 
 if (!existsSync(entry)) {
   console.error('[gv] build not found at', entry)
