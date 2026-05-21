@@ -85,6 +85,7 @@ const canReset = computed(() => {
     store.range !== s.range
     || store.focusPath !== s.focus
     || store.selectedChanges !== s.changes
+    || store.selectedReview !== s.review
     || store.selectedShas.join(',') !== s.shas.join(',')
   )
 })

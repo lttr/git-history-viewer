@@ -99,10 +99,11 @@ interface UrlState {
   file: string
   focus: string
   changes: ChangesKind | ''
+  review: boolean
 }
 
 function readUrl(): UrlState {
-  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '' }
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '', review: false }
   const p = new URLSearchParams(window.location.search)
   const shaRaw = p.get('sha') ?? ''
   const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
@@ -115,6 +116,7 @@ function readUrl(): UrlState {
     file: p.get('file') ?? '',
     focus: p.get('focus') ?? '',
     changes,
+    review: p.get('review') === '1',
   }
 }
 
@@ -134,6 +136,7 @@ function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace'
     setOrDel('sha', joined)
   }
   if (patch.changes !== undefined) setOrDel('changes', patch.changes)
+  if (patch.review !== undefined) setOrDel('review', patch.review ? '1' : '')
   if (patch.file !== undefined) setOrDel('file', patch.file)
   if (patch.focus !== undefined) setOrDel('focus', patch.focus)
   url.hash = ''
@@ -150,6 +153,13 @@ export interface DiffsRangePayload {
   from: string
   to: string
   base: string
+  files: FileDiff[]
+}
+
+export interface DiffBranchPayload {
+  base: string
+  head: string
+  range: string
   files: FileDiff[]
 }
 
@@ -172,12 +182,14 @@ export const useViewerStore = defineStore('viewer', {
     diffMode: 'split' as 'split' | 'unified',
     changesSummary: { unstaged: 0, staged: 0 } as { unstaged: number; staged: number },
     selectedChanges: '' as ChangesKind | '',
+    selectedReview: false,
     focusPath: '' as string,
     initialSnapshot: null as null | {
       range: string
       focus: string
       shas: string[]
       changes: ChangesKind | ''
+      review: boolean
     },
     commentsDoc: null as CommentsDoc | null,
   }),
@@ -218,6 +230,14 @@ export const useViewerStore = defineStore('viewer', {
     isChanges(): boolean {
       return !!this.selectedChanges
     },
+    isReview(): boolean {
+      return this.selectedReview
+    },
+    // Branch review needs a base..head range; "all history" or a bare HEAD has
+    // no base to diff against.
+    canReview(): boolean {
+      return /\.\.\.?/.test(this.range)
+    },
     selectedCommits(): Commit[] {
       const set = new Set(this.selectedShas)
       return this.commits.filter((c) => set.has(c.hash))
@@ -243,7 +263,9 @@ export const useViewerStore = defineStore('viewer', {
         this.loadMore({ autoSelect: false }),
         this.refreshChanges(),
       ])
-      if (urlState.changes) {
+      if (urlState.review && this.canReview) {
+        await this.selectBranchReview(urlState.file)
+      } else if (urlState.changes) {
         await this.selectChanges(urlState.changes, urlState.file)
       } else if (urlState.shas.length) {
         const resolved = await Promise.all(urlState.shas.map((s) => this.resolveSha(s)))
@@ -265,6 +287,7 @@ export const useViewerStore = defineStore('viewer', {
         focus: this.focusPath,
         shas: [...this.selectedShas],
         changes: this.selectedChanges,
+        review: this.selectedReview,
       }
       if (typeof window !== 'undefined') {
         window.addEventListener('popstate', () => {
@@ -288,16 +311,18 @@ export const useViewerStore = defineStore('viewer', {
       this.lastPivotSha = ''
       this.selectedFile = ''
       this.selectedChanges = ''
+      this.selectedReview = false
       commitCache.clear()
       writeUrl(
-        { range: snap.range, focus: snap.focus, shas: [], changes: '', file: '' },
+        { range: snap.range, focus: snap.focus, shas: [], changes: '', review: false, file: '' },
         'push',
       )
       await Promise.all([
         this.loadMore({ autoSelect: false }),
         this.refreshChanges(),
       ])
-      if (snap.changes) await this.selectChanges(snap.changes)
+      if (snap.review) await this.selectBranchReview()
+      else if (snap.changes) await this.selectChanges(snap.changes)
       else if (snap.shas.length > 1) await this.setMultiSelection(snap.shas)
       else if (snap.shas.length === 1) await this.selectCommit(snap.shas[0])
       else if (this.changesSummary.unstaged > 0) await this.selectChanges('unstaged')
@@ -326,6 +351,10 @@ export const useViewerStore = defineStore('viewer', {
         this.range = s.range
         await this.reloadCommits()
       }
+      if (s.review && this.canReview) {
+        await this.selectBranchReview(s.file)
+        return
+      }
       if (s.changes) {
         await this.selectChanges(s.changes, s.file)
         return
@@ -340,7 +369,7 @@ export const useViewerStore = defineStore('viewer', {
       if (next === this.focusPath) return
       this.focusPath = next
       commitCache.clear()
-      writeUrl({ focus: next, shas: [], changes: '', file: '' }, 'push')
+      writeUrl({ focus: next, shas: [], changes: '', review: false, file: '' }, 'push')
       this.commitDetail = null
       this.diffs = null
       this.selectedSha = ''
@@ -348,6 +377,7 @@ export const useViewerStore = defineStore('viewer', {
       this.lastPivotSha = ''
       this.selectedFile = ''
       this.selectedChanges = ''
+      this.selectedReview = false
       await Promise.all([this.reloadCommits(), this.refreshChanges()])
     },
     async clearFocus() {
@@ -355,14 +385,19 @@ export const useViewerStore = defineStore('viewer', {
     },
     async setRange(range: string) {
       this.range = range.trim()
-      writeUrl({ range: this.range }, 'push')
+      // A branch range only makes sense for review; leaving it would strand the
+      // pile against a base that's no longer selected.
+      if (this.selectedReview && !this.canReview) this.selectedReview = false
+      writeUrl({ range: this.range, review: this.selectedReview ? true : undefined }, 'push')
       await this.reloadCommits()
+      if (this.selectedReview) await this.selectBranchReview()
     },
     async reloadCommits() {
       this.commits = []
       this.commitsDone = false
       this.rangeError = ''
-      if (!this.selectedChanges) {
+      const keepSelection = this.selectedChanges || this.selectedReview
+      if (!keepSelection) {
         this.commitDetail = null
         this.diffs = null
         this.selectedSha = ''
@@ -370,7 +405,7 @@ export const useViewerStore = defineStore('viewer', {
         this.lastPivotSha = ''
         this.selectedFile = ''
       }
-      await this.loadMore({ autoSelect: !this.selectedChanges })
+      await this.loadMore({ autoSelect: !keepSelection })
     },
     async refreshChanges() {
       try {
@@ -383,11 +418,12 @@ export const useViewerStore = defineStore('viewer', {
     },
     async selectChanges(kind: ChangesKind, preferFile = '') {
       this.selectedChanges = kind
+      this.selectedReview = false
       this.selectedSha = ''
       this.selectedShas = []
       this.lastPivotSha = ''
       this.commitDetail = null
-      writeUrl({ changes: kind, shas: [] }, 'push')
+      writeUrl({ changes: kind, shas: [], review: false }, 'push')
       const my = ++selectFetchId
       this.diffsLoading = true
       try {
@@ -404,6 +440,41 @@ export const useViewerStore = defineStore('viewer', {
         this.selectedFile = picked
         writeUrl({ file: this.selectedFile })
         this.refreshChanges()
+      } finally {
+        if (my === selectFetchId) this.diffsLoading = false
+      }
+    },
+    // Whole-branch review: every change from the merge-base to HEAD in one
+    // aggregate diff. Individual commits stay clickable in the list to drill in.
+    async selectBranchReview(preferFile = '') {
+      this.selectedReview = true
+      this.selectedChanges = ''
+      this.selectedSha = ''
+      this.selectedShas = []
+      this.lastPivotSha = ''
+      this.commitDetail = null
+      writeUrl({ review: true, shas: [], changes: '' }, 'push')
+      const my = ++selectFetchId
+      this.diffsLoading = true
+      try {
+        const payload = await $fetch<DiffBranchPayload>('/api/diff-branch', {
+          query: {
+            range: this.range,
+            ...(this.focusPath ? { path: this.focusPath } : {}),
+          },
+        })
+        if (my !== selectFetchId) return
+        this.diffs = { sha: payload.head, parent: payload.base, files: payload.files }
+        const picked = preferFile && payload.files.some((f) => f.path === preferFile)
+          ? preferFile
+          : payload.files[0]?.path ?? ''
+        this.skipNextScroll = picked === (payload.files[0]?.path ?? '')
+        this.selectedFile = picked
+        writeUrl({ file: this.selectedFile })
+      } catch (e: any) {
+        if (my !== selectFetchId) return
+        this.diffs = { sha: '', parent: '', files: [] }
+        this.rangeError = e?.data?.message || e?.message || 'Failed to load branch diff'
       } finally {
         if (my === selectFetchId) this.diffsLoading = false
       }
@@ -435,10 +506,11 @@ export const useViewerStore = defineStore('viewer', {
     },
     async selectCommit(sha: string, preferFile = '') {
       this.selectedChanges = ''
+      this.selectedReview = false
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
-      writeUrl({ shas: [sha], changes: '' }, 'push')
+      writeUrl({ shas: [sha], changes: '', review: false }, 'push')
       const my = ++selectFetchId
       const pickFile = (files: { path: string }[]) => {
         if (preferFile && files.some((f) => f.path === preferFile)) return preferFile
@@ -486,12 +558,13 @@ export const useViewerStore = defineStore('viewer', {
         return
       }
       this.selectedChanges = ''
+      this.selectedReview = false
       this.selectedShas = unique
       this.selectedSha = unique[0]
       if (!this.lastPivotSha || !unique.includes(this.lastPivotSha)) {
         this.lastPivotSha = unique[0]
       }
-      writeUrl({ shas: unique, changes: '' }, 'push')
+      writeUrl({ shas: unique, changes: '', review: false }, 'push')
       const my = ++selectFetchId
       this.diffsLoading = true
       try {

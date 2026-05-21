@@ -60,11 +60,13 @@ function onKey(e: KeyboardEvent) {
 }
 
 type Row =
+  | { kind: 'review' }
   | { kind: 'changes'; value: 'unstaged' | 'staged' }
   | { kind: 'commit'; value: string }
 
 function rowList(): Row[] {
   const rows: Row[] = []
+  if (store.canReview) rows.push({ kind: 'review' })
   if (store.changesSummary.unstaged > 0) rows.push({ kind: 'changes', value: 'unstaged' })
   if (store.changesSummary.staged > 0) rows.push({ kind: 'changes', value: 'staged' })
   for (const c of store.commits) rows.push({ kind: 'commit', value: c.hash })
@@ -74,14 +76,17 @@ function rowList(): Row[] {
 function stepCommit(delta: number) {
   const rows = rowList()
   if (!rows.length) return
-  let idx = store.selectedChanges
-    ? rows.findIndex((r) => r.kind === 'changes' && r.value === store.selectedChanges)
-    : rows.findIndex((r) => r.kind === 'commit' && r.value === store.selectedSha)
+  let idx = store.isReview
+    ? rows.findIndex((r) => r.kind === 'review')
+    : store.selectedChanges
+      ? rows.findIndex((r) => r.kind === 'changes' && r.value === store.selectedChanges)
+      : rows.findIndex((r) => r.kind === 'commit' && r.value === store.selectedSha)
   if (idx < 0) idx = 0
   const next = Math.max(0, Math.min(rows.length - 1, idx + delta))
   if (next === idx) return
   const target = rows[next]
-  if (target.kind === 'changes') store.selectChanges(target.value)
+  if (target.kind === 'review') store.selectBranchReview()
+  else if (target.kind === 'changes') store.selectChanges(target.value)
   else store.selectCommit(target.value)
 }
 

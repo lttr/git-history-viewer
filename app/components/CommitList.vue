@@ -51,6 +51,24 @@ function refreshChanges(e: MouseEvent, kind: 'staged' | 'unstaged') {
     <RangeBar />
     <div ref="scrollEl" class="scroll">
       <div
+        v-if="store.canReview"
+        class="row review-row"
+        :class="{ active: store.isReview, primary: store.isReview }"
+        :title="`Review all changes in ${store.range}`"
+        @click="store.selectBranchReview()"
+      >
+        <div class="subject">
+          <span class="review-icon">⇄</span>
+          Review branch
+        </div>
+        <div class="meta">
+          <span class="review-range">{{ store.range }}</span>
+          <span class="review-count">
+            {{ store.commits.length }}{{ store.commitsDone ? '' : '+' }} commits<template v-if="store.isReview && store.diffs"> · {{ store.diffs.files.length }} files</template>
+          </span>
+        </div>
+      </div>
+      <div
         v-if="store.changesSummary.unstaged > 0"
         class="row ch-row"
         :class="{ active: store.selectedChanges === 'unstaged', primary: store.selectedChanges === 'unstaged' }"
@@ -162,6 +180,30 @@ function refreshChanges(e: MouseEvent, kind: 'staged' | 'unstaged') {
 }
 .ch-row {
   background: var(--bg);
+}
+.review-row {
+  background: var(--bg);
+}
+.review-row .subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.review-icon {
+  color: #d4bfff;
+  font-weight: 700;
+}
+.review-range {
+  font-family: var(--mono);
+  color: #d4bfff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-count {
+  flex: 1;
+  color: var(--fg-dim);
+  text-align: right;
 }
 .ch-row .subject {
   display: flex;

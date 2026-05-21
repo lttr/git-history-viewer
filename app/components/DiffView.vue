@@ -240,6 +240,9 @@ function scrollToFileForce(path: string) {
         <template v-if="store.focusPath">
           <span class="active-file">{{ store.focusPath }}</span>
         </template>
+        <template v-else-if="store.isReview">
+          Branch review · {{ store.diffs?.files.length ?? 0 }} files
+        </template>
         <template v-else-if="store.isChanges">
           {{ store.selectedChanges === 'staged' ? 'Staged' : 'Unstaged' }} · {{ store.diffs?.files.length ?? 0 }} files
         </template>
@@ -270,7 +273,17 @@ function scrollToFileForce(path: string) {
       </div>
       <div v-else-if="!store.diffs.files.length" class="state">No files changed</div>
       <template v-else>
-        <div v-if="store.isChanges" class="commit-meta ch">
+        <div v-if="store.isReview" class="commit-meta multi">
+          <div class="subject">Branch review · {{ store.range }}</div>
+          <ul class="commit-list-inline">
+            <li v-for="c in store.commits" :key="c.hash">
+              <span class="sha">{{ c.shortHash }}</span>
+              <span class="subj">{{ c.subject }}</span>
+              <span class="author">{{ c.author }}</span>
+            </li>
+          </ul>
+        </div>
+        <div v-else-if="store.isChanges" class="commit-meta ch">
           <div class="subject">
             <span class="ch-dot" :class="store.selectedChanges" />
             {{ store.selectedChanges === 'staged' ? 'Staged changes' : 'Unstaged changes' }}
