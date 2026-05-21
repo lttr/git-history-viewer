@@ -3,7 +3,15 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 import type { CommentThread } from '~/types/comments'
 
-const props = defineProps<{ thread: CommentThread }>()
+const props = defineProps<{ thread: CommentThread; showAnchor?: boolean }>()
+
+const anchorLabel = computed(() => {
+  const a = props.thread.anchor
+  if (!a) return ''
+  if (a.line == null) return a.path
+  const span = a.endLine && a.endLine !== a.line ? `${a.line}-${a.endLine}` : `${a.line}`
+  return `${a.path}:${span}${a.side === 'old' ? ' (old)' : ''}`
+})
 
 function relTime(iso: string): string {
   const t = Date.parse(iso)
@@ -28,6 +36,7 @@ const rendered = computed(() => props.thread.comments.map((c) => ({
 
 <template>
   <div class="ct" :class="{ 'ct-resolved': thread.status === 'resolved' }">
+    <div v-if="showAnchor && anchorLabel" class="ct-anchor">{{ anchorLabel }}</div>
     <div v-for="(c, i) in rendered" :key="i" class="ct-comment">
       <div class="ct-meta">
         <span class="ct-author">{{ c.author }}</span>
@@ -49,6 +58,13 @@ const rendered = computed(() => props.thread.comments.map((c) => ({
   line-height: 1.5;
 }
 .ct-resolved { border-left-color: rgba(92, 103, 115, 0.5); opacity: 0.7; }
+.ct-anchor {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #707a8c;
+  margin-bottom: 4px;
+  word-break: break-all;
+}
 .ct-comment { padding: 4px 0; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .ct-comment:first-of-type { border-top: 0; }
 .ct-meta { display: flex; gap: 8px; align-items: baseline; margin-bottom: 2px; }

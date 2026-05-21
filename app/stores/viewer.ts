@@ -1,7 +1,26 @@
 import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
-import type { CommentsDoc, CommentIndex } from '~/types/comments'
+import type { CommentsDoc, CommentIndex, CommentThread } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
+
+// Line numbers present in a unified-diff patch, per side. Used to detect
+// inline comments anchored to a line that isn't in the diff being viewed.
+function presentLines(patch: string): { new: Set<number>; old: Set<number> } {
+  const res = { new: new Set<number>(), old: new Set<number>() }
+  if (!patch) return res
+  let oldLn = 0
+  let newLn = 0
+  for (const line of patch.split('\n')) {
+    const h = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (h) { oldLn = Number(h[1]); newLn = Number(h[2]); continue }
+    const c = line[0]
+    if (c === '+') res.new.add(newLn++)
+    else if (c === '-') res.old.add(oldLn++)
+    else if (c === '\\') { /* "\ No newline at end of file" */ }
+    else { res.new.add(newLn++); res.old.add(oldLn++) }
+  }
+  return res
+}
 
 let selectFetchId = 0
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
@@ -165,6 +184,33 @@ export const useViewerStore = defineStore('viewer', {
   getters: {
     commentIndex(): CommentIndex {
       return buildCommentIndex(this.commentsDoc)
+    },
+    // Threads that can't render anywhere in the current diff: their file isn't
+    // in the changeset, or their line isn't present in the patch. Surfaced in
+    // an "unattached" panel so no comment is silently lost.
+    orphanComments(): CommentThread[] {
+      const idx = this.commentIndex
+      if (!idx.total) return []
+      const byPath = new Map((this.diffs?.files ?? []).map((f) => [f.path, f]))
+      const out: CommentThread[] = []
+      for (const path of Object.keys(idx.byPath)) {
+        const fc = idx.byPath[path]
+        const file = byPath.get(path)
+        if (!file) {
+          out.push(...fc.fileLevel)
+          for (const side of ['new', 'old'] as const) {
+            for (const ts of Object.values(fc.byLine[side])) out.push(...ts)
+          }
+          continue
+        }
+        const present = presentLines(file.patch)
+        for (const side of ['new', 'old'] as const) {
+          for (const [ln, ts] of Object.entries(fc.byLine[side])) {
+            if (!present[side].has(Number(ln))) out.push(...ts)
+          }
+        }
+      }
+      return out
     },
     isMulti(): boolean {
       return this.selectedShas.length > 1

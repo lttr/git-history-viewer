@@ -76,7 +76,7 @@ Overlay review comments onto the diff with `gv --comments <file.json>`. Comments
 - **file-level** — a thread attached to a file (no line), shown under the file header
 - **PR-level** — a thread with no file, shown in a summary panel above the diff
 
-Each file with comments gets a 💬 badge; resolved threads render dimmed. If a comment's line isn't present in the diff you're viewing (different commit/range than it was authored against), the badge still shows but the inline thread won't attach.
+Each file with comments gets a 💬 badge; resolved threads render dimmed. If a comment's line — or its whole file — isn't present in the diff you're viewing (different commit/range than it was authored against), it can't attach inline; instead it's collected in an **unattached comments** panel above the diff (with its `path:line`) so nothing is lost.
 
 ### Format (`gv` comment format v1)
 
@@ -154,5 +154,5 @@ gv --comments pr.json
 - Merge commits: diff is against first parent only
 - Large diffs (>3000 lines) render on demand via `Load diff` button; old/new full file content is loaded both sides (needed for syntax highlight)
 - No branch/tag picker, no file search
-- Comments anchored to a line not present in the current diff show only as a file 💬 badge, not inline; deleted-file diffs don't render inline comments
+- Comments anchored to a line/file not present in the current diff (incl. deleted files) appear in the "unattached comments" panel above the diff rather than inline
 - Uncommitted-changes view skips untracked files

@@ -316,6 +316,17 @@ function scrollToFileForce(path: string) {
               :thread="t"
             />
           </div>
+          <div v-if="store.orphanComments.length" class="orphan-comments">
+            <div class="orphan-title">
+              ⚠ {{ store.orphanComments.length }} unattached — line/file not in this diff
+            </div>
+            <CommentThread
+              v-for="t in store.orphanComments"
+              :key="t.id"
+              :thread="t"
+              show-anchor
+            />
+          </div>
         </div>
         <section
           v-for="f in orderedFiles"
@@ -710,5 +721,17 @@ function scrollToFileForce(path: string) {
 }
 .comments-count { color: #707a8c; }
 .pr-level-comments { margin-top: 6px; }
+.orphan-comments {
+  margin-top: 8px;
+  border: 1px solid rgba(242, 135, 121, 0.3);
+  border-radius: 4px;
+  padding: 4px 0 6px;
+  background: rgba(242, 135, 121, 0.04);
+}
+.orphan-title {
+  font-size: 11px;
+  color: #f28779;
+  padding: 2px 12px 4px;
+}
 .ct-extend { padding: 2px 0; }
 </style>
