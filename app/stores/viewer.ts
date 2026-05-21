@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
+import type { CommentsDoc, CommentIndex } from '~/types/comments'
+import { buildCommentIndex } from '~/types/comments'
 
 let selectFetchId = 0
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
@@ -158,8 +160,12 @@ export const useViewerStore = defineStore('viewer', {
       shas: string[]
       changes: ChangesKind | ''
     },
+    commentsDoc: null as CommentsDoc | null,
   }),
   getters: {
+    commentIndex(): CommentIndex {
+      return buildCommentIndex(this.commentsDoc)
+    },
     isMulti(): boolean {
       return this.selectedShas.length > 1
     },
@@ -175,6 +181,13 @@ export const useViewerStore = defineStore('viewer', {
     async init() {
       if (!this.context) {
         this.context = await $fetch<RepoContext>('/api/context')
+      }
+      if (!this.commentsDoc) {
+        try {
+          this.commentsDoc = await $fetch<CommentsDoc>('/api/comments')
+        } catch {
+          this.commentsDoc = { version: 1, threads: [] }
+        }
       }
       const urlState = readUrl()
       this.range = urlState.range || this.context.defaultRange

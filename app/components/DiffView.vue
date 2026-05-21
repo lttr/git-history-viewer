@@ -72,6 +72,21 @@ function diffDataFor(f: FileDiff) {
   }
 }
 
+// --- inline comments ---
+function commentsFor(path: string) {
+  return store.commentIndex.byPath[path]
+}
+function extendDataFor(f: FileDiff) {
+  const fc = commentsFor(f.path)
+  if (!fc) return undefined
+  const toRecord = (m: Record<number, unknown[]>) => {
+    const r: Record<number, { data: unknown }> = {}
+    for (const [line, threads] of Object.entries(m)) r[Number(line)] = { data: threads }
+    return r
+  }
+  return { oldFile: toRecord(fc.byLine.old), newFile: toRecord(fc.byLine.new) }
+}
+
 const mode = computed(() =>
   store.diffMode === 'split' ? DiffModeEnum.Split : DiffModeEnum.Unified,
 )
@@ -289,6 +304,19 @@ function scrollToFileForce(path: string) {
             <span v-if="store.commitDetail.isMerge" class="merge-tag">merge</span>
           </div>
         </div>
+        <div v-if="store.commentIndex.total" class="comments-summary">
+          <span v-if="store.commentIndex.source" class="comments-source">
+            comments from {{ store.commentIndex.source.ref || store.commentIndex.source.kind }}
+            <span class="comments-count">· {{ store.commentIndex.total }} threads</span>
+          </span>
+          <div v-if="store.commentIndex.prLevel.length" class="pr-level-comments">
+            <CommentThread
+              v-for="t in store.commentIndex.prLevel"
+              :key="t.id"
+              :thread="t"
+            />
+          </div>
+        </div>
         <section
           v-for="f in orderedFiles"
           :id="fileId(f.path)"
@@ -301,6 +329,16 @@ function scrollToFileForce(path: string) {
               {{ f.status }}
             </span>
             <span class="filename">{{ f.oldPath && f.oldPath !== f.path ? `${f.oldPath} → ${f.path}` : f.path }}</span>
+            <span v-if="commentsFor(f.path)" class="comment-badge" :title="`${commentsFor(f.path)!.count} comment thread(s)`">
+              💬 {{ commentsFor(f.path)!.count }}
+            </span>
+          </div>
+          <div v-if="commentsFor(f.path)?.fileLevel.length" class="file-level-comments">
+            <CommentThread
+              v-for="t in commentsFor(f.path)!.fileLevel"
+              :key="t.id"
+              :thread="t"
+            />
           </div>
 
           <template v-if="f.status === 'D'">
@@ -316,11 +354,18 @@ function scrollToFileForce(path: string) {
             >
               <DiffView
                 :data="diffDataFor(f)"
+                :extend-data="extendDataFor(f)"
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
                 :diff-view-highlight="shouldHighlight(f)"
-              />
+              >
+                <template #extend="{ data }">
+                  <div class="ct-extend">
+                    <CommentThread v-for="(t, i) in data" :key="t.id ?? i" :thread="t" />
+                  </div>
+                </template>
+              </DiffView>
               <div v-if="!expanded.has(f.path)" class="fade">
                 <button class="show-more" @click="toggleExpanded(f.path)">Show more</button>
               </div>
@@ -363,11 +408,18 @@ function scrollToFileForce(path: string) {
             <div v-else class="diff-wrap" :class="{ truncated: !expanded.has(f.path) }">
               <DiffView
                 :data="diffDataFor(f)"
+                :extend-data="extendDataFor(f)"
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
                 :diff-view-highlight="shouldHighlight(f)"
-              />
+              >
+                <template #extend="{ data }">
+                  <div class="ct-extend">
+                    <CommentThread v-for="(t, i) in data" :key="t.id ?? i" :thread="t" />
+                  </div>
+                </template>
+              </DiffView>
               <div v-if="!expanded.has(f.path)" class="fade">
                 <button class="show-more" @click="toggleExpanded(f.path)">Show more</button>
               </div>
@@ -635,4 +687,28 @@ function scrollToFileForce(path: string) {
   font-family: var(--mono);
   color: #73d0ff;
 }
+
+/* comments */
+.comment-badge {
+  margin-left: auto;
+  font-size: 11px;
+  color: #ffcc66;
+  background: rgba(255, 204, 102, 0.12);
+  padding: 1px 7px;
+  border-radius: 9px;
+  white-space: nowrap;
+}
+.file-level-comments { padding: 4px 0; }
+.comments-summary {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.comments-source {
+  font-size: 12px;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+}
+.comments-count { color: #707a8c; }
+.pr-level-comments { margin-top: 6px; }
+.ct-extend { padding: 2px 0; }
 </style>

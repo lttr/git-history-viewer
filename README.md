@@ -23,9 +23,10 @@ gv
 ## Use
 
 ```bash
-gv                     # serve current repo
-gv path/to/file.ts     # preselect a file
-GV_REPO_PATH=/repo gv  # explicit repo path
+gv                          # serve current repo
+gv path/to/file.ts          # preselect a file
+gv --comments pr.json       # overlay review comments (see Comments)
+GV_REPO_PATH=/repo gv       # explicit repo path
 ```
 
 Picks a free port starting at `3434`, binds `127.0.0.1`, opens default browser.
@@ -67,6 +68,57 @@ All are written back to the URL as you navigate.
 
 Pseudo-rows at the top of the commit list show **Unstaged changes** (working tree vs index) and **Staged changes** (index vs HEAD) when present. Click ↻ on a row to refresh after staging files outside the app. Untracked files are not yet shown.
 
+## Comments
+
+Overlay review comments onto the diff with `gv --comments <file.json>`. Comments render three ways depending on their anchor:
+
+- **inline** — a thread attached to a file + line, shown under that line in the diff
+- **file-level** — a thread attached to a file (no line), shown under the file header
+- **PR-level** — a thread with no file, shown in a summary panel above the diff
+
+Each file with comments gets a 💬 badge; resolved threads render dimmed. If a comment's line isn't present in the diff you're viewing (different commit/range than it was authored against), the badge still shows but the inline thread won't attach.
+
+### Format (`gv` comment format v1)
+
+The viewer is source-agnostic — it reads this neutral JSON shape:
+
+```jsonc
+{
+  "version": 1,
+  "source": { "kind": "azure-devops", "ref": "PR #101678", "url": "https://…" }, // optional
+  "anchoredTo": { "base": "<sha>", "head": "<sha>" },                            // optional
+  "threads": [
+    {
+      "id": "693641",
+      "status": "open",                     // "open" | "resolved"
+      "anchor": {                            // null = PR-level
+        "path": "src/foo.ts",                // repo-relative, no leading slash
+        "side": "new",                       // "new" | "old"  (default "new")
+        "line": 150,                         // omit for a file-level thread
+        "endLine": 150                       // optional span end
+      },
+      "comments": [
+        { "author": "Jane Doe", "date": "2026-05-13T15:24:34Z", "body": "markdown text" }
+      ]
+    }
+  ]
+}
+```
+
+`anchor` shapes: `null` → PR-level; `{path}` → file-level; `{path, line}` → inline. `body` supports a small markdown subset (fenced code, inline `code`, line breaks), HTML-escaped.
+
+### Importing (external)
+
+Importers live outside this tool — convert any review source into the format above and pass the result with `--comments`. Example: Azure DevOps via `az` + `jq`:
+
+```bash
+az repos pr comment-thread list --id 101678 --org https://dev.azure.com/ORG -p PROJECT > raw.json
+jq --arg ref "PR #101678" -f examples/azure-to-gv.jq raw.json > pr.json
+gv --comments pr.json
+```
+
+`examples/azure-to-gv.jq` (drops `system`/policy threads, normalizes `fixed`→`resolved`, strips the leading `/` from paths, maps `rightFileStart`→`new` side) maps the Azure thread shape onto v1.
+
 ## Layout
 
 - `app/` — pages, components, Pinia store (`stores/viewer.ts`)
@@ -87,6 +139,7 @@ Pseudo-rows at the top of the commit list show **Unstaged changes** (working tre
 | `GET /api/diffs-range?shas=a,b,c` | aggregated diff across multiple commits |
 | `GET /api/changes` | counts of staged + unstaged changes |
 | `GET /api/changes/:kind` | diffs for `staged` or `unstaged` uncommitted changes |
+| `GET /api/comments` | review comments doc (`--comments` file), or empty doc if unset |
 
 ## Env
 
@@ -101,4 +154,5 @@ Pseudo-rows at the top of the commit list show **Unstaged changes** (working tre
 - Merge commits: diff is against first parent only
 - Large diffs (>3000 lines) render on demand via `Load diff` button; old/new full file content is loaded both sides (needed for syntax highlight)
 - No branch/tag picker, no file search
+- Comments anchored to a line not present in the current diff show only as a file 💬 badge, not inline; deleted-file diffs don't render inline comments
 - Uncommitted-changes view skips untracked files

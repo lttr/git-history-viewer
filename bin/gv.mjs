@@ -37,9 +37,32 @@ if (!existsSync(entry)) {
   process.exit(1)
 }
 
-const argFile = process.argv[2]
+// args: [file] [--comments <path>]  (--comments=<path> also accepted)
+let argFile = ''
+let commentsArg = ''
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i]
+  if (a === '--comments' || a === '-c') {
+    commentsArg = argv[++i] ?? ''
+  } else if (a.startsWith('--comments=')) {
+    commentsArg = a.slice('--comments='.length)
+  } else if (!a.startsWith('-') && !argFile) {
+    argFile = a
+  }
+}
+
 let cwdForRepo = process.cwd()
 let filePath = ''
+let commentsPath = ''
+
+if (commentsArg) {
+  commentsPath = resolve(process.cwd(), commentsArg)
+  if (!existsSync(commentsPath)) {
+    console.error('[gv] comments file not found:', commentsPath)
+    process.exit(1)
+  }
+}
 
 if (argFile) {
   const abs = resolve(process.cwd(), argFile)
@@ -92,6 +115,7 @@ const env = {
   NUXT_REPO_PATH: repoPath,
   GV_FILE_PATH: filePath,
   NUXT_FILE_PATH: filePath,
+  NUXT_COMMENTS_PATH: commentsPath,
   PORT: String(port),
   HOST: host,
   NITRO_PORT: String(port),
@@ -106,6 +130,7 @@ const repoDir = dirname(repoPath)
 
 console.log(`${c.bold(c.cyan('gv'))} ${c.bold(repoName)} ${c.dim(repoDir)}`)
 if (filePath) console.log(`    ${c.dim('file')} ${filePath}`)
+if (commentsPath) console.log(`    ${c.dim('comments')} ${relative(process.cwd(), commentsPath) || commentsPath}`)
 
 let ready = false
 const rl = createInterface({ input: child.stdout })
