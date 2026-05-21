@@ -47,6 +47,7 @@
     "prepublishOnly": "nuxt build"
   },
   "dependencies": {
+    "marked": "^18.0.4",
     "open": "^10.1.0"
   },
   "devDependencies": {
