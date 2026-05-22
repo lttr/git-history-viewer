@@ -26,6 +26,7 @@ export default defineEventHandler(async () => {
   try { head = (await git.raw(['rev-parse', 'HEAD'])).trim() } catch {}
 
   const filePath = (cfg.filePath as string) || ''
+  const collect = !!(cfg.collect as string)
 
-  return { branch, base, defaultRange, head, repo, filePath }
+  return { branch, base, defaultRange, head, repo, filePath, collect }
 })

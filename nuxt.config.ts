@@ -15,6 +15,7 @@ export default defineNuxtConfig({
     repoPath: process.env.GV_REPO_PATH || process.cwd(),
     filePath: process.env.GV_FILE_PATH || '',
     commentsPath: '',
+    collect: '',
   },
   nitro: {
     preset: 'node-server',
