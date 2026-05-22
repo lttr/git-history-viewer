@@ -26,10 +26,21 @@ gv
 gv                          # serve current repo
 gv path/to/file.ts          # preselect a file
 gv --comments pr.json       # overlay review comments (see Comments)
-GV_REPO_PATH=/repo gv       # explicit repo path
+gv --repo /path/to/repo     # explicit repo path
+gv --port 4000              # explicit port
+gv --host 0.0.0.0           # explicit bind host
 ```
 
-Picks a free port starting at `3434`, binds `127.0.0.1`, opens default browser.
+Flags:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `-c, --comments <path>` | — | Inline review comments file (see Comments) |
+| `-r, --repo <path>` | current directory | Target repo root |
+| `-p, --port <n>` | `3434` (auto-picks next free) | HTTP port |
+| `--host <host>` | `127.0.0.1` | Bind host |
+
+By default picks a free port starting at `3434`, binds `127.0.0.1`, opens default browser. Passing `--port` pins that exact port (errors if in use).
 
 ## Develop
 
@@ -141,13 +152,16 @@ gv --comments pr.json
 | `GET /api/changes/:kind` | diffs for `staged` or `unstaged` uncommitted changes |
 | `GET /api/comments` | review comments doc (`--comments` file), or empty doc if unset |
 
-## Env
+## Env (dev / internal only)
 
-| Var             | Default                      | Purpose          |
-| --------------- | ---------------------------- | ---------------- |
-| `GV_REPO_PATH`  | `process.cwd()`              | Target repo root |
-| `PORT`          | `3434` (prod) / `3000` (dev) | HTTP port        |
-| `HOST`          | `127.0.0.1`                  | Bind host        |
+The `gv` CLI is configured entirely via flags (see Use). These env vars are read
+only by the Nitro server itself — `bin/gv.mjs` sets them when spawning it, and the
+dev server reads them directly:
+
+| Var             | Default         | Purpose          |
+| --------------- | --------------- | ---------------- |
+| `GV_REPO_PATH`  | `process.cwd()` | Target repo root |
+| `GV_FILE_PATH`  | —               | Preselected file |
 
 ## Known limits
 

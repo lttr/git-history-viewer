@@ -43,18 +43,18 @@ Arguments:
 
 Options:
   -c, --comments <path>  Load inline review comments from a file
+  -r, --repo <path>      Repo to view (default: current directory)
+  -p, --port <n>         Port to use (default: 3434, auto-picks next free)
+      --host <host>      Host to bind (default: 127.0.0.1)
   -h, --help             Show this help
   -v, --version          Show version
-
-Environment:
-  GV_REPO_PATH         Repo to view (default: current directory)
-  PORT / NITRO_PORT    Port to use (default: 3434, auto-picks next free)
-  HOST                 Host to bind (default: 127.0.0.1)
 
 Examples:
   gv                          View history of the current repo
   gv src/index.ts             Open one file's history
-  gv --comments review.md     Show inline review comments`)
+  gv --comments review.md     Show inline review comments
+  gv --repo /path/to/repo     View a different repo
+  gv --port 4000              Use a specific port`)
   process.exit(0)
 }
 if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
@@ -73,19 +73,26 @@ if (!existsSync(entry)) {
   process.exit(1)
 }
 
-// args: [file] [--comments <path>]  (--comments=<path> also accepted)
+// args: [file] [--comments <path>] [--repo <path>] [--port <n>] [--host <host>]
+// (--flag=value form accepted for each)
 let argFile = ''
 let commentsArg = ''
+let repoArg = ''
+let portArg = ''
+let hostArg = ''
 const argv = process.argv.slice(2)
+const takeValue = (a, name, short, i) =>
+  a === name || a === short ? { value: argv[i + 1] ?? '', skip: 1 }
+    : a.startsWith(`${name}=`) ? { value: a.slice(name.length + 1), skip: 0 }
+      : null
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
-  if (a === '--comments' || a === '-c') {
-    commentsArg = argv[++i] ?? ''
-  } else if (a.startsWith('--comments=')) {
-    commentsArg = a.slice('--comments='.length)
-  } else if (!a.startsWith('-') && !argFile) {
-    argFile = a
-  }
+  let m
+  if ((m = takeValue(a, '--comments', '-c', i))) { commentsArg = m.value; i += m.skip }
+  else if ((m = takeValue(a, '--repo', '-r', i))) { repoArg = m.value; i += m.skip }
+  else if ((m = takeValue(a, '--port', '-p', i))) { portArg = m.value; i += m.skip }
+  else if ((m = takeValue(a, '--host', '--host', i))) { hostArg = m.value; i += m.skip }
+  else if (!a.startsWith('-') && !argFile) { argFile = a }
 }
 
 let cwdForRepo = process.cwd()
@@ -119,7 +126,8 @@ if (argFile) {
   cwdForRepo = root
 }
 
-const repoPath = resolve(process.env.GV_REPO_PATH || cwdForRepo)
+// --repo overrides the cwd/derived repo; a positional file already pins cwdForRepo to its repo root.
+const repoPath = resolve(repoArg || cwdForRepo)
 
 try {
   const root = execSync('git rev-parse --show-toplevel', { cwd: repoPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
@@ -129,9 +137,13 @@ try {
   process.exit(1)
 }
 
-const host = process.env.HOST || '127.0.0.1'
-const portExplicit = !!(process.env.PORT || process.env.NITRO_PORT)
-const basePort = Number(process.env.PORT || process.env.NITRO_PORT || 3434)
+const host = hostArg || '127.0.0.1'
+const portExplicit = !!portArg
+if (portArg && !Number.isInteger(Number(portArg))) {
+  console.error(`[gv] invalid --port: ${portArg}`)
+  process.exit(1)
+}
+const basePort = Number(portArg || 3434)
 let port = basePort
 if (!portExplicit) {
   try {
