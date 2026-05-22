@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
-import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor } from '~/types/comments'
+import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor, CommentSide, ThreadSource } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
 
 // Line numbers present in a unified-diff patch, per side. Used to detect
@@ -195,6 +195,10 @@ export const useViewerStore = defineStore('viewer', {
     commentsDoc: null as CommentsDoc | null,
     collect: false,
     submitted: false,
+    // Left-pane tab: 'commits' shows CommitList, 'comments' shows the overview.
+    overviewTab: 'commits' as 'commits' | 'comments',
+    // Set by navigateToComment; DiffView watches it to scroll to + flash a line.
+    pendingScrollLine: null as { path: string; line: number; side: CommentSide } | null,
   }),
   getters: {
     commentIndex(): CommentIndex {
@@ -642,6 +646,18 @@ export const useViewerStore = defineStore('viewer', {
       this.diffMode = this.diffMode === 'split' ? 'unified' : 'split'
     },
     // --- collect mode: authoring comments ---
+    // Snapshot of the diff selection the draft was authored against, so the
+    // overview can restore that context before scrolling to the anchored line.
+    currentSource(): ThreadSource {
+      return {
+        sha: this.selectedShas.length <= 1 ? this.selectedSha || undefined : undefined,
+        shas: this.selectedShas.length > 1 ? [...this.selectedShas] : undefined,
+        range: this.range || undefined,
+        changes: this.selectedChanges,
+        review: this.selectedReview || undefined,
+        focus: this.focusPath || undefined,
+      }
+    },
     addComment(anchor: CommentAnchor | null, body: string) {
       const text = body.trim()
       if (!text) return
@@ -651,7 +667,38 @@ export const useViewerStore = defineStore('viewer', {
         status: 'open',
         anchor,
         comments: [{ author: 'reviewer', date: new Date().toISOString(), body: text }],
+        _source: this.currentSource(),
       })
+    },
+    // Re-open the diff context a comment belongs to, select its file, then ask
+    // DiffView to scroll to + flash the line. Accurate when the draft carries
+    // _source; loaded comments fall back to the current diff. Lines that still
+    // don't surface land in the existing unattached panel (DiffView flags it).
+    async navigateToComment(thread: CommentThread) {
+      this.overviewTab = 'commits'
+      const src = thread._source
+      const anchor = thread.anchor
+      const preferFile = anchor?.path ?? ''
+      if (src) {
+        if ((src.focus ?? '') !== this.focusPath) await this.setFocus(src.focus ?? '')
+        if (src.range && src.range !== this.range) {
+          this.range = src.range
+          await this.reloadCommits()
+        }
+        if (src.review && this.canReview) await this.selectBranchReview(preferFile)
+        else if (src.changes) await this.selectChanges(src.changes, preferFile)
+        else if (src.shas && src.shas.length > 1) await this.setMultiSelection(src.shas, preferFile)
+        else if (src.sha) await this.selectCommit(src.sha, preferFile)
+      } else if (preferFile && this.diffs?.files.some((f) => f.path === preferFile)) {
+        this.selectFile(preferFile)
+      }
+      if (anchor?.line != null) {
+        const side: CommentSide = anchor.side === 'old' ? 'old' : 'new'
+        // Re-assign even if path/line repeat, so the watcher always fires.
+        this.pendingScrollLine = { path: anchor.path, line: anchor.line, side }
+      } else if (preferFile) {
+        this.selectFile(preferFile)
+      }
     },
     // MVP threads are single-comment, so edits target comments[0]. No-op if the
     // thread is gone or the new body is empty.

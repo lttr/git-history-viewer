@@ -24,12 +24,28 @@ export interface Comment {
   body: string
 }
 
+/**
+ * Client-only navigation hint: the diff selection active when an authored draft
+ * was created. Underscore-prefixed so it's never serialized to output; lets the
+ * overview re-open the right commit/range/changes/review before scrolling to
+ * the anchored line. Absent on loaded `--comments`.
+ */
+export interface ThreadSource {
+  sha?: string
+  shas?: string[]
+  range?: string
+  changes?: 'staged' | 'unstaged' | ''
+  review?: boolean
+  focus?: string
+}
+
 export interface CommentThread {
   id: string
   status: ThreadStatus
   /** null = PR-level (no file). {path} only = file-level. {path,line} = inline. */
   anchor: CommentAnchor | null
   comments: Comment[]
+  _source?: ThreadSource
 }
 
 export interface CommentsDoc {

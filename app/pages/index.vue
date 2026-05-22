@@ -118,7 +118,27 @@ function stepFile(delta: number) {
 
 <template>
   <div class="layout" :class="{ focused: !!store.focusPath }">
-    <CommitList class="pane pane-commits" />
+    <div class="pane pane-commits left-pane">
+      <div class="left-tabs">
+        <button
+          class="left-tab"
+          :class="{ active: store.overviewTab === 'commits' }"
+          @click="store.overviewTab = 'commits'"
+        >
+          Commits
+        </button>
+        <button
+          class="left-tab"
+          :class="{ active: store.overviewTab === 'comments' }"
+          @click="store.overviewTab = 'comments'"
+        >
+          Comments
+          <span v-if="store.commentIndex.total" class="tab-count">{{ store.commentIndex.total }}</span>
+        </button>
+      </div>
+      <CommitList v-show="store.overviewTab === 'commits'" class="left-body" />
+      <CommentsOverview v-if="store.overviewTab === 'comments'" class="left-body" />
+    </div>
     <FileTree v-if="!store.focusPath" class="pane pane-files" />
     <DiffView class="pane pane-diff" />
     <HotkeyHelp />
@@ -136,4 +156,36 @@ function stepFile(delta: number) {
   grid-template-columns: 320px 1fr;
 }
 .pane { height: 100vh; overflow: hidden; min-width: 0; }
+.left-pane { display: flex; flex-direction: column; }
+.left-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.left-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 7px 8px;
+}
+.left-tab:hover { color: var(--fg); }
+.left-tab.active { color: var(--fg); border-bottom-color: #2f81f7; }
+.tab-count {
+  font-size: 10px;
+  color: #707a8c;
+  background: var(--bg-3);
+  padding: 0 6px;
+  border-radius: 8px;
+}
+.left-body { flex: 1; min-height: 0; overflow: hidden; }
 </style>

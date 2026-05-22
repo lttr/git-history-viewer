@@ -280,6 +280,55 @@ function scrollToFileForce(path: string) {
   forceLoad(path)
   nextTick(() => scrollToFile(path))
 }
+
+// --- navigate-to-comment: scroll to the anchored line and flash it ---
+// The diff lib stamps each line cell with data-line-{new,old}-num; we locate
+// that cell, scroll its row into view, and pulse a highlight. The line may not
+// render immediately (heavy file just forced open), so we poll a few frames
+// before giving up and showing a notice — the thread is still in the orphan
+// panel either way.
+const navNotice = ref('')
+let navNoticeTimer: ReturnType<typeof setTimeout> | null = null
+
+function findLineRow(path: string, line: number, side: 'new' | 'old'): HTMLElement | null {
+  const section = scrollEl.value?.querySelector<HTMLElement>(`#${fileId(path)}`)
+  if (!section) return null
+  const attr = side === 'old' ? 'data-line-old-num' : 'data-line-new-num'
+  const cell = section.querySelector<HTMLElement>(`[${attr}="${line}"]`)
+  return cell?.closest<HTMLElement>('.diff-line') ?? cell
+}
+
+function flashLineRow(row: HTMLElement) {
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  row.classList.add('comment-target')
+  setTimeout(() => row.classList.remove('comment-target'), 1500)
+}
+
+function showNavMiss(path: string, line: number) {
+  navNotice.value = `Couldn't locate ${path}:${line} in this diff — see Unattached above.`
+  if (navNoticeTimer) clearTimeout(navNoticeTimer)
+  navNoticeTimer = setTimeout(() => { navNotice.value = '' }, 5000)
+}
+
+watch(
+  () => store.pendingScrollLine,
+  (p) => {
+    if (!p) return
+    navNotice.value = ''
+    forceLoad(p.path)
+    nextTick(() => {
+      scrollToFile(p.path)
+      let tries = 0
+      const tick = () => {
+        const row = findLineRow(p.path, p.line, p.side)
+        if (row) { flashLineRow(row); store.pendingScrollLine = null; return }
+        if (++tries > 12) { showNavMiss(p.path, p.line); store.pendingScrollLine = null; return }
+        requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+  },
+)
 </script>
 
 <template>
@@ -325,6 +374,7 @@ function scrollToFileForce(path: string) {
         </button>
       </div>
     </div>
+    <div v-if="navNotice" class="nav-notice">{{ navNotice }}</div>
     <div ref="scrollEl" class="body">
       <div v-if="!store.diffs" class="state">
         {{ store.diffsLoading ? 'Loading…' : 'Select a commit' }}
@@ -937,4 +987,22 @@ function scrollToFileForce(path: string) {
 .collect-hint { font-size: 12px; color: var(--fg-dim); margin: 0 8px 4px; }
 .collect-hint strong { color: #79b8ff; }
 .collect-done { font-size: 13px; color: #bae67e; }
+
+.nav-notice {
+  padding: 6px 12px;
+  background: rgba(242, 135, 121, 0.12);
+  border-bottom: 1px solid rgba(242, 135, 121, 0.3);
+  color: #f28779;
+  font-size: 12px;
+}
+
+/* navigate-to-comment line flash */
+:deep(.diff-line.comment-target),
+:deep(.comment-target) {
+  animation: comment-flash 1.5s ease-out;
+}
+@keyframes comment-flash {
+  0%, 30% { background: rgba(47, 129, 247, 0.35); }
+  100% { background: transparent; }
+}
 </style>
