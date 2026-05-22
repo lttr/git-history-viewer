@@ -43,6 +43,8 @@ Arguments:
 
 Options:
   -c, --comments <path>  Load inline review comments from a file
+      --collect          Author review comments in the browser; on "Finish",
+                         print them as JSON to stdout (for a coding agent)
   -r, --repo <path>      Repo to view (default: current directory)
   -p, --port <n>         Port to use (default: 3434, auto-picks next free)
       --host <host>      Host to bind (default: 127.0.0.1)
@@ -53,6 +55,7 @@ Examples:
   gv                          View history of the current repo
   gv src/index.ts             Open one file's history
   gv --comments review.md     Show inline review comments
+  gv --collect                Collect review feedback, print JSON on finish
   gv --repo /path/to/repo     View a different repo
   gv --port 4000              Use a specific port`)
   process.exit(0)
@@ -80,6 +83,7 @@ let commentsArg = ''
 let repoArg = ''
 let portArg = ''
 let hostArg = ''
+let collect = false
 const argv = process.argv.slice(2)
 const takeValue = (a, name, short, i) =>
   a === name || a === short ? { value: argv[i + 1] ?? '', skip: 1 }
@@ -88,7 +92,8 @@ const takeValue = (a, name, short, i) =>
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i]
   let m
-  if ((m = takeValue(a, '--comments', '-c', i))) { commentsArg = m.value; i += m.skip }
+  if (a === '--collect') { collect = true }
+  else if ((m = takeValue(a, '--comments', '-c', i))) { commentsArg = m.value; i += m.skip }
   else if ((m = takeValue(a, '--repo', '-r', i))) { repoArg = m.value; i += m.skip }
   else if ((m = takeValue(a, '--port', '-p', i))) { portArg = m.value; i += m.skip }
   else if ((m = takeValue(a, '--host', '--host', i))) { hostArg = m.value; i += m.skip }
@@ -164,6 +169,7 @@ const env = {
   GV_FILE_PATH: filePath,
   NUXT_FILE_PATH: filePath,
   NUXT_COMMENTS_PATH: commentsPath,
+  NUXT_COLLECT: collect ? '1' : '',
   PORT: String(port),
   HOST: host,
   NITRO_PORT: String(port),
@@ -179,13 +185,26 @@ const repoDir = dirname(repoPath)
 console.log(`${c.bold(c.cyan('gv'))} ${c.bold(repoName)} ${c.dim(repoDir)}`)
 if (filePath) console.log(`    ${c.dim('file')} ${filePath}`)
 if (commentsPath) console.log(`    ${c.dim('comments')} ${relative(process.cwd(), commentsPath) || commentsPath}`)
+if (collect) console.log(`    ${c.dim('collect')} review comments → plain text on finish`)
+
+// The server emits collected comments on this sentinel line when the user
+// clicks "Finish review" — base64-encoded plain text (multi-line markdown). We
+// capture it and print it decoded after exit, between markers, so a coding
+// agent reading stdout can lift it out.
+const SENTINEL = '__GV_REVIEW_TEXT__'
+let reviewText = null
 
 let ready = false
 const rl = createInterface({ input: child.stdout })
 rl.on('line', (line) => {
+  if (line.startsWith(SENTINEL)) {
+    reviewText = line.slice(SENTINEL.length)
+    return
+  }
   if (!ready && /Listening on /i.test(line)) {
     ready = true
-    console.log(`    ${c.green('→')} ${c.cyan(url)}  ${c.dim('(Ctrl-C to stop)')}`)
+    const hint = collect ? 'add comments, then "Finish review"' : 'Ctrl-C to stop'
+    console.log(`    ${c.green('→')} ${c.cyan(url)}  ${c.dim(`(${hint})`)}`)
     open(url).catch(() => {})
     return
   }
@@ -195,4 +214,13 @@ rl.on('line', (line) => {
 const shutdown = () => { child.kill('SIGTERM') }
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
-child.on('exit', (code) => process.exit(code ?? 0))
+child.on('exit', (code) => {
+  if (reviewText) {
+    let out = reviewText
+    try { out = Buffer.from(reviewText, 'base64').toString('utf8') } catch {}
+    process.stdout.write('===GV_COMMENTS_BEGIN===\n')
+    process.stdout.write(out + '\n')
+    process.stdout.write('===GV_COMMENTS_END===\n')
+  }
+  process.exit(code ?? 0)
+})
