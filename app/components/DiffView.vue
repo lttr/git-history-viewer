@@ -293,8 +293,13 @@ let navNoticeTimer: ReturnType<typeof setTimeout> | null = null
 function findLineRow(path: string, line: number, side: 'new' | 'old'): HTMLElement | null {
   const section = scrollEl.value?.querySelector<HTMLElement>(`#${fileId(path)}`)
   if (!section) return null
-  const attr = side === 'old' ? 'data-line-old-num' : 'data-line-new-num'
-  const cell = section.querySelector<HTMLElement>(`[${attr}="${line}"]`)
+  // Split mode renders a per-side table (.old-diff-table / .new-diff-table),
+  // each numbering its own side via data-line-num. Unified mode is one table;
+  // fall back to a section-wide match there.
+  const table = section.querySelector<HTMLElement>(
+    side === 'old' ? '.old-diff-table' : '.new-diff-table',
+  )
+  const cell = (table ?? section).querySelector<HTMLElement>(`[data-line-num="${line}"]`)
   return cell?.closest<HTMLElement>('.diff-line') ?? cell
 }
 

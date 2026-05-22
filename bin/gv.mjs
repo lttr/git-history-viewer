@@ -44,7 +44,7 @@ Arguments:
 Options:
   -c, --comments <path>  Load inline review comments from a file
       --collect          Author review comments in the browser; on "Finish",
-                         print them as JSON to stdout (for a coding agent)
+                         print them as plain text to stdout (for a coding agent)
   -r, --repo <path>      Repo to view (default: current directory)
   -p, --port <n>         Port to use (default: 3434, auto-picks next free)
       --host <host>      Host to bind (default: 127.0.0.1)
@@ -55,7 +55,7 @@ Examples:
   gv                          View history of the current repo
   gv src/index.ts             Open one file's history
   gv --comments review.md     Show inline review comments
-  gv --collect                Collect review feedback, print JSON on finish
+  gv --collect                Collect review feedback, print plain text on finish
   gv --repo /path/to/repo     View a different repo
   gv --port 4000              Use a specific port`)
   process.exit(0)
