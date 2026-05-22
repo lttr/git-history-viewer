@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import { marked } from 'marked'
 import type { CommentThread } from '~/types/comments'
 
-const props = defineProps<{ thread: CommentThread; showAnchor?: boolean }>()
+const props = defineProps<{ thread: CommentThread; showAnchor?: boolean; deletable?: boolean; editable?: boolean }>()
+const emit = defineEmits<{ delete: []; edit: [] }>()
 
 const anchorLabel = computed(() => {
   const a = props.thread.anchor
@@ -36,6 +37,10 @@ const rendered = computed(() => props.thread.comments.map((c) => ({
 
 <template>
   <div class="ct" :class="{ 'ct-resolved': thread.status === 'resolved' }">
+    <div v-if="editable || deletable" class="ct-actions">
+      <button v-if="editable" class="ct-act" title="Edit comment" @click="emit('edit')">✎</button>
+      <button v-if="deletable" class="ct-act ct-del" title="Remove comment" @click="emit('delete')">✕</button>
+    </div>
     <div v-if="showAnchor && anchorLabel" class="ct-anchor">{{ anchorLabel }}</div>
     <div v-for="(c, i) in rendered" :key="i" class="ct-comment">
       <div class="ct-meta">
@@ -50,6 +55,7 @@ const rendered = computed(() => props.thread.comments.map((c) => ({
 
 <style scoped>
 .ct {
+  position: relative;
   border-left: 2px solid rgba(255, 204, 102, 0.35);
   background: rgba(255, 204, 102, 0.04);
   margin: 4px 8px;
@@ -57,6 +63,24 @@ const rendered = computed(() => props.thread.comments.map((c) => ({
   font-size: 13px;
   line-height: 1.5;
 }
+.ct-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+}
+.ct-act {
+  background: transparent;
+  border: none;
+  color: #707a8c;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+  line-height: 1;
+}
+.ct-act:hover { color: var(--fg); background: transparent; }
+.ct-del:hover { color: #f28779; background: transparent; }
 .ct-resolved { border-left-color: rgba(92, 103, 115, 0.5); opacity: 0.7; }
 .ct-anchor {
   font-family: var(--mono);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
+import { DiffView, DiffModeEnum, SplitSide } from '@git-diff-view/vue'
 import '@git-diff-view/vue/styles/diff-view.css'
 import { useViewerStore } from '~/stores/viewer'
 import type { FileDiff } from '~/stores/viewer'
@@ -64,12 +64,25 @@ function extOf(path: string) {
   return i > 0 ? path.slice(i + 1) : ''
 }
 
-function diffDataFor(f: FileDiff) {
+// Memoized: @git-diff-view recreates its internal DiffFile (and wipes any open
+// add-comment widget) whenever the `:data` object identity changes. Returning a
+// fresh object each render would close the widget on the very re-render that
+// opens it, so we hand back a stable reference per file. Cleared when diffs change.
+const diffDataCache = new Map<string, ReturnType<typeof buildDiffData>>()
+function buildDiffData(f: FileDiff) {
   return {
     oldFile: { fileName: f.oldPath || f.path, fileLang: extOf(f.path), content: f.oldContent },
     newFile: { fileName: f.path, fileLang: extOf(f.path), content: f.newContent },
     hunks: f.patch ? [f.patch] : [],
   }
+}
+function diffDataFor(f: FileDiff) {
+  let d = diffDataCache.get(f.path)
+  if (!d) {
+    d = buildDiffData(f)
+    diffDataCache.set(f.path, d)
+  }
+  return d
 }
 
 // --- inline comments ---
@@ -85,6 +98,41 @@ function extendDataFor(f: FileDiff) {
     return r
   }
   return { oldFile: toRecord(fc.byLine.old), newFile: toRecord(fc.byLine.new) }
+}
+
+// --- authoring comments (collect mode) ---
+// Clicking the "+" on a diff line only emits onAddWidgetClick; we open the
+// inline composer by feeding initialWidgetState to that file's DiffView.
+const openWidget = ref<{ path: string; side: SplitSide; lineNumber: number } | null>(null)
+function onAddWidget(path: string, lineNumber: number, side: SplitSide) {
+  openWidget.value = { path, side, lineNumber }
+}
+function widgetStateFor(path: string) {
+  const w = openWidget.value
+  return w && w.path === path ? { side: w.side, lineNumber: w.lineNumber } : undefined
+}
+function saveInline(path: string, lineNumber: number, side: SplitSide, body: string, onClose: () => void) {
+  store.addComment({ path, line: lineNumber, side: side === SplitSide.old ? 'old' : 'new' }, body)
+  onClose()
+  openWidget.value = null
+}
+function cancelWidget(onClose: () => void) {
+  onClose()
+  openWidget.value = null
+}
+function isDraft(id: string) {
+  return store.collect && id.startsWith('draft-')
+}
+
+// Edit-in-place: the thread whose id matches renders as a prefilled composer
+// instead of the static CommentThread. Edits happen outside the diff-lib widget
+// (in the #extend slot), so they don't recreate the memoized DiffFile.
+const editingId = ref<string | null>(null)
+function startEdit(id: string) { editingId.value = id }
+function cancelEdit() { editingId.value = null }
+function saveEdit(id: string, body: string) {
+  store.editComment(id, body)
+  editingId.value = null
 }
 
 const mode = computed(() =>
@@ -168,6 +216,7 @@ watch(
 watch(
   () => store.diffs,
   () => {
+    diffDataCache.clear()
     const eager = new Set<string>()
     const files = orderedFiles.value
     for (let i = 0; i < Math.min(EAGER_FILE_COUNT, files.length); i++) {
@@ -256,6 +305,15 @@ function scrollToFileForce(path: string) {
       </span>
       <div class="header-actions">
         <button
+          v-if="store.collect && !store.submitted"
+          class="finish-btn"
+          :title="store.draftThreads.length ? 'Send comments to the agent and exit' : 'Add at least one comment first'"
+          :disabled="!store.draftThreads.length"
+          @click="store.finishReview()"
+        >
+          Finish review ({{ store.draftThreads.length }})
+        </button>
+        <button
           v-if="!store.focusPath && store.diffs && store.diffs.files.length > 1"
           :title="allExpanded ? 'Collapse all files' : 'Expand all files'"
           @click="toggleExpandAll"
@@ -273,6 +331,22 @@ function scrollToFileForce(path: string) {
       </div>
       <div v-else-if="!store.diffs.files.length" class="state">No files changed</div>
       <template v-else>
+        <div v-if="store.collect" class="collect-bar">
+          <template v-if="store.submitted">
+            <span class="collect-done">✓ Review sent — {{ store.draftThreads.length }} comment(s). You can close this tab.</span>
+          </template>
+          <template v-else>
+            <div class="collect-hint">
+              Hover a diff line and click <strong>+</strong> to comment inline, or leave a general note below.
+            </div>
+            <CommentComposer
+              placeholder="General comment for this review…"
+              :cancellable="false"
+              :autofocus="false"
+              @save="(b) => store.addComment(null, b)"
+            />
+          </template>
+        </div>
         <div v-if="store.isReview" class="commit-meta multi">
           <div class="subject">Branch review · {{ store.range }}</div>
           <ul class="commit-list-inline">
@@ -323,22 +397,46 @@ function scrollToFileForce(path: string) {
             <span class="comments-count">· {{ store.commentIndex.total }} threads</span>
           </span>
           <div v-if="store.commentIndex.prLevel.length" class="pr-level-comments">
-            <CommentThread
-              v-for="t in store.commentIndex.prLevel"
-              :key="t.id"
-              :thread="t"
-            />
+            <template v-for="t in store.commentIndex.prLevel" :key="t.id">
+              <CommentComposer
+                v-if="editingId === t.id"
+                submit-label="Save"
+                :initial-value="t.comments[0]?.body"
+                @save="(b) => saveEdit(t.id, b)"
+                @cancel="cancelEdit"
+              />
+              <CommentThread
+                v-else
+                :thread="t"
+                :editable="isDraft(t.id)"
+                :deletable="isDraft(t.id)"
+                @edit="startEdit(t.id)"
+                @delete="store.removeComment(t.id)"
+              />
+            </template>
           </div>
           <div v-if="store.orphanComments.length" class="orphan-comments">
             <div class="orphan-title">
               ⚠ {{ store.orphanComments.length }} unattached — line/file not in this diff
             </div>
-            <CommentThread
-              v-for="t in store.orphanComments"
-              :key="t.id"
-              :thread="t"
-              show-anchor
-            />
+            <template v-for="t in store.orphanComments" :key="t.id">
+              <CommentComposer
+                v-if="editingId === t.id"
+                submit-label="Save"
+                :initial-value="t.comments[0]?.body"
+                @save="(b) => saveEdit(t.id, b)"
+                @cancel="cancelEdit"
+              />
+              <CommentThread
+                v-else
+                :thread="t"
+                show-anchor
+                :editable="isDraft(t.id)"
+                :deletable="isDraft(t.id)"
+                @edit="startEdit(t.id)"
+                @delete="store.removeComment(t.id)"
+              />
+            </template>
           </div>
         </div>
         <section
@@ -358,11 +456,23 @@ function scrollToFileForce(path: string) {
             </span>
           </div>
           <div v-if="commentsFor(f.path)?.fileLevel.length" class="file-level-comments">
-            <CommentThread
-              v-for="t in commentsFor(f.path)!.fileLevel"
-              :key="t.id"
-              :thread="t"
-            />
+            <template v-for="t in commentsFor(f.path)!.fileLevel" :key="t.id">
+              <CommentComposer
+                v-if="editingId === t.id"
+                submit-label="Save"
+                :initial-value="t.comments[0]?.body"
+                @save="(b) => saveEdit(t.id, b)"
+                @cancel="cancelEdit"
+              />
+              <CommentThread
+                v-else
+                :thread="t"
+                :editable="isDraft(t.id)"
+                :deletable="isDraft(t.id)"
+                @edit="startEdit(t.id)"
+                @delete="store.removeComment(t.id)"
+              />
+            </template>
           </div>
 
           <template v-if="f.status === 'D'">
@@ -383,10 +493,38 @@ function scrollToFileForce(path: string) {
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
                 :diff-view-highlight="shouldHighlight(f)"
+                :diff-view-add-widget="store.collect && !store.submitted"
+                :initial-widget-state="widgetStateFor(f.path)"
+                @on-add-widget-click="(line, side) => onAddWidget(f.path, line, side)"
               >
                 <template #extend="{ data }">
                   <div class="ct-extend">
-                    <CommentThread v-for="(t, i) in data" :key="t.id ?? i" :thread="t" />
+                    <template v-for="(t, i) in data" :key="t.id ?? i">
+                      <CommentComposer
+                        v-if="editingId === t.id"
+                        submit-label="Save"
+                        :initial-value="t.comments[0]?.body"
+                        @save="(b) => saveEdit(t.id, b)"
+                        @cancel="cancelEdit"
+                      />
+                      <CommentThread
+                        v-else
+                        :thread="t"
+                        :editable="isDraft(t.id)"
+                        :deletable="isDraft(t.id)"
+                        @edit="startEdit(t.id)"
+                        @delete="store.removeComment(t.id)"
+                      />
+                    </template>
+                  </div>
+                </template>
+                <template #widget="{ lineNumber, side, onClose }">
+                  <div class="ct-widget">
+                    <CommentComposer
+                      :placeholder="`Comment on line ${lineNumber}…`"
+                      @save="(b) => saveInline(f.path, lineNumber, side, b, onClose)"
+                      @cancel="() => cancelWidget(onClose)"
+                    />
                   </div>
                 </template>
               </DiffView>
@@ -437,10 +575,38 @@ function scrollToFileForce(path: string) {
                 :diff-view-theme="'dark'"
                 :diff-view-wrap="false"
                 :diff-view-highlight="shouldHighlight(f)"
+                :diff-view-add-widget="store.collect && !store.submitted"
+                :initial-widget-state="widgetStateFor(f.path)"
+                @on-add-widget-click="(line, side) => onAddWidget(f.path, line, side)"
               >
                 <template #extend="{ data }">
                   <div class="ct-extend">
-                    <CommentThread v-for="(t, i) in data" :key="t.id ?? i" :thread="t" />
+                    <template v-for="(t, i) in data" :key="t.id ?? i">
+                      <CommentComposer
+                        v-if="editingId === t.id"
+                        submit-label="Save"
+                        :initial-value="t.comments[0]?.body"
+                        @save="(b) => saveEdit(t.id, b)"
+                        @cancel="cancelEdit"
+                      />
+                      <CommentThread
+                        v-else
+                        :thread="t"
+                        :editable="isDraft(t.id)"
+                        :deletable="isDraft(t.id)"
+                        @edit="startEdit(t.id)"
+                        @delete="store.removeComment(t.id)"
+                      />
+                    </template>
+                  </div>
+                </template>
+                <template #widget="{ lineNumber, side, onClose }">
+                  <div class="ct-widget">
+                    <CommentComposer
+                      :placeholder="`Comment on line ${lineNumber}…`"
+                      @save="(b) => saveInline(f.path, lineNumber, side, b, onClose)"
+                      @cancel="() => cancelWidget(onClose)"
+                    />
                   </div>
                 </template>
               </DiffView>
@@ -747,4 +913,28 @@ function scrollToFileForce(path: string) {
   padding: 2px 12px 4px;
 }
 .ct-extend { padding: 2px 0; }
+.ct-widget { padding: 2px 0; }
+
+/* collect (authoring) mode */
+.finish-btn {
+  background: #2f81f7;
+  color: #fff;
+  border: 1px solid #2f81f7;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+.finish-btn:hover { background: #4d92f8; }
+.finish-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.collect-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(47, 129, 247, 0.06);
+}
+.collect-hint { font-size: 12px; color: var(--fg-dim); margin: 0 8px 4px; }
+.collect-hint strong { color: #79b8ff; }
+.collect-done { font-size: 13px; color: #bae67e; }
 </style>

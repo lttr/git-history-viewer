@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
-import type { CommentsDoc, CommentIndex, CommentThread } from '~/types/comments'
+import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
 
 // Line numbers present in a unified-diff patch, per side. Used to detect
@@ -88,6 +88,7 @@ export interface RepoContext {
   head: string
   repo: string
   filePath: string
+  collect?: boolean
 }
 
 export type ChangesKind = 'staged' | 'unstaged'
@@ -192,10 +193,17 @@ export const useViewerStore = defineStore('viewer', {
       review: boolean
     },
     commentsDoc: null as CommentsDoc | null,
+    collect: false,
+    submitted: false,
   }),
   getters: {
     commentIndex(): CommentIndex {
       return buildCommentIndex(this.commentsDoc)
+    },
+    // Comments authored in this session (collect mode); the only ones sent back
+    // to the agent on finish. Loaded --comments threads keep their own ids.
+    draftThreads(): CommentThread[] {
+      return (this.commentsDoc?.threads ?? []).filter((t) => t.id.startsWith('draft-'))
     },
     // Threads that can't render anywhere in the current diff: their file isn't
     // in the changeset, or their line isn't present in the patch. Surfaced in
@@ -248,6 +256,7 @@ export const useViewerStore = defineStore('viewer', {
       if (!this.context) {
         this.context = await $fetch<RepoContext>('/api/context')
       }
+      this.collect = !!this.context.collect
       if (!this.commentsDoc) {
         try {
           this.commentsDoc = await $fetch<CommentsDoc>('/api/comments')
@@ -631,6 +640,40 @@ export const useViewerStore = defineStore('viewer', {
     },
     toggleDiffMode() {
       this.diffMode = this.diffMode === 'split' ? 'unified' : 'split'
+    },
+    // --- collect mode: authoring comments ---
+    addComment(anchor: CommentAnchor | null, body: string) {
+      const text = body.trim()
+      if (!text) return
+      if (!this.commentsDoc) this.commentsDoc = { version: 1, threads: [] }
+      this.commentsDoc.threads.push({
+        id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        status: 'open',
+        anchor,
+        comments: [{ author: 'reviewer', date: new Date().toISOString(), body: text }],
+      })
+    },
+    // MVP threads are single-comment, so edits target comments[0]. No-op if the
+    // thread is gone or the new body is empty.
+    editComment(id: string, body: string) {
+      const text = body.trim()
+      if (!text || !this.commentsDoc) return
+      const thread = this.commentsDoc.threads.find((t) => t.id === id)
+      if (!thread?.comments[0]) return
+      thread.comments[0].body = text
+    },
+    removeComment(id: string) {
+      if (!this.commentsDoc) return
+      this.commentsDoc.threads = this.commentsDoc.threads.filter((t) => t.id !== id)
+    },
+    async finishReview() {
+      const doc: CommentsDoc = { version: 1, threads: this.draftThreads }
+      try {
+        await $fetch('/api/finish', { method: 'POST', body: doc })
+      } catch {
+        // server exits right after responding; a dropped connection is expected
+      }
+      this.submitted = true
     },
   },
 })
