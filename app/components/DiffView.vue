@@ -374,6 +374,12 @@ watch(
         >
           {{ allExpanded ? 'Collapse all' : 'Expand all' }}
         </button>
+        <button
+          :title="store.diffWrap ? 'Disable line wrapping' : 'Enable line wrapping'"
+          @click="store.toggleDiffWrap()"
+        >
+          {{ store.diffWrap ? 'Wrap: on' : 'Wrap: off' }}
+        </button>
         <button @click="store.toggleDiffMode()">
           {{ store.diffMode === 'split' ? 'Side-by-side' : 'Unified' }}
         </button>
@@ -546,7 +552,7 @@ watch(
                 :extend-data="extendDataFor(f)"
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
-                :diff-view-wrap="false"
+                :diff-view-wrap="store.diffWrap"
                 :diff-view-highlight="shouldHighlight(f)"
                 :diff-view-add-widget="store.collect && !store.submitted"
                 :initial-widget-state="widgetStateFor(f.path)"
@@ -628,7 +634,7 @@ watch(
                 :extend-data="extendDataFor(f)"
                 :diff-view-mode="mode"
                 :diff-view-theme="'dark'"
-                :diff-view-wrap="false"
+                :diff-view-wrap="store.diffWrap"
                 :diff-view-highlight="shouldHighlight(f)"
                 :diff-view-add-widget="store.collect && !store.submitted"
                 :initial-widget-state="widgetStateFor(f.path)"

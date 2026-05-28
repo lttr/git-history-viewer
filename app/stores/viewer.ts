@@ -181,6 +181,7 @@ export const useViewerStore = defineStore('viewer', {
     selectedFile: '' as string,
     skipNextScroll: false,
     diffMode: 'split' as 'split' | 'unified',
+    diffWrap: true,
     changesSummary: { unstaged: 0, staged: 0 } as { unstaged: number; staged: number },
     selectedChanges: '' as ChangesKind | '',
     selectedReview: false,
@@ -644,6 +645,9 @@ export const useViewerStore = defineStore('viewer', {
     },
     toggleDiffMode() {
       this.diffMode = this.diffMode === 'split' ? 'unified' : 'split'
+    },
+    toggleDiffWrap() {
+      this.diffWrap = !this.diffWrap
     },
     // --- collect mode: authoring comments ---
     // Snapshot of the diff selection the draft was authored against, so the
