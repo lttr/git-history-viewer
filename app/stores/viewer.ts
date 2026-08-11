@@ -22,6 +22,16 @@ function presentLines(patch: string): { new: Set<number>; old: Set<number> } {
   return res
 }
 
+// Identity of a diff selection, used to tell whether a thread was authored
+// against what's on screen now. Empty string = unknown, which never mismatches.
+function scopeKey(s: Pick<ThreadSource, 'sha' | 'shas' | 'changes' | 'review'>): string {
+  if (s.review) return 'review'
+  if (s.changes) return `changes:${s.changes}`
+  if (s.shas && s.shas.length > 1) return `multi:${[...s.shas].sort().join(',')}`
+  if (s.sha) return `commit:${s.sha}`
+  return ''
+}
+
 let selectFetchId = 0
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
 const MAX_CACHE = 100
@@ -241,12 +251,28 @@ export const useViewerStore = defineStore('viewer', {
           }
         })
     },
+    // The selection currently on screen, as a scope key.
+    selectionScope(): string {
+      return scopeKey({
+        sha: this.selectedShas.length <= 1 ? this.selectedSha : undefined,
+        shas: this.selectedShas,
+        changes: this.selectedChanges,
+        review: this.selectedReview,
+      })
+    },
     // Threads that can't render anywhere in the current diff: their file isn't
     // in the changeset, or their line isn't present in the patch. Surfaced in
-    // an "unattached" panel so no comment is silently lost.
+    // an "unattached" panel so no comment is silently lost — but only for the
+    // selection they were authored against, otherwise a note on one commit's
+    // file would reappear as "unattached" under every other commit.
     orphanComments(): CommentThread[] {
       const idx = this.commentIndex
       if (!idx.total) return []
+      const here = this.selectionScope
+      const inScope = (t: CommentThread) => {
+        const from = t._source ? scopeKey(t._source) : ''
+        return !from || !here || from === here
+      }
       const byPath = new Map((this.diffs?.files ?? []).map((f) => [f.path, f]))
       const out: CommentThread[] = []
       for (const path of Object.keys(idx.byPath)) {
@@ -266,7 +292,7 @@ export const useViewerStore = defineStore('viewer', {
           }
         }
       }
-      return out
+      return out.filter(inScope)
     },
     isMulti(): boolean {
       return this.selectedShas.length > 1
