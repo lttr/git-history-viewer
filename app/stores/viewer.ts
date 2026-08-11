@@ -194,6 +194,9 @@ export const useViewerStore = defineStore('viewer', {
       review: boolean
     },
     commentsDoc: null as CommentsDoc | null,
+    // Where an unanchored comment lands while a single commit is selected:
+    // bound to that commit, or to the review as a whole.
+    commentScope: 'commit' as 'commit' | 'review',
     collect: false,
     submitted: false,
     // Left-pane tab: 'commits' shows CommitList, 'comments' shows the overview.
@@ -209,6 +212,34 @@ export const useViewerStore = defineStore('viewer', {
     // to the agent on finish. Loaded --comments threads keep their own ids.
     draftThreads(): CommentThread[] {
       return (this.commentsDoc?.threads ?? []).filter((t) => t.id.startsWith('draft-'))
+    },
+    // The commit an unanchored comment can be attached to: only a lone commit
+    // selection is unambiguous — changes, branch review and multi-select span
+    // more than one commit, so notes there stay review-level.
+    commentTargetSha(): string {
+      if (this.selectedChanges || this.selectedReview || this.isMulti) return ''
+      return this.selectedSha
+    },
+    // Unanchored threads belonging to the commit currently on screen.
+    commitLevelComments(): CommentThread[] {
+      const sha = this.commentTargetSha
+      return sha ? this.commentIndex.byCommit[sha] ?? [] : []
+    },
+    // Commit-level threads grouped for the overview, newest commit first, with
+    // the subject resolved from the loaded log where possible.
+    commentsByCommit(): { sha: string; label: string; threads: CommentThread[] }[] {
+      const byCommit = this.commentIndex.byCommit
+      const order = new Map(this.commits.map((c, i) => [c.hash, i]))
+      return Object.keys(byCommit)
+        .sort((a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity))
+        .map((sha) => {
+          const c = this.commits.find((x) => x.hash === sha)
+          return {
+            sha,
+            label: c ? `${c.shortHash} ${c.subject}` : sha.slice(0, 8),
+            threads: byCommit[sha] ?? [],
+          }
+        })
     },
     // Threads that can't render anywhere in the current diff: their file isn't
     // in the changeset, or their line isn't present in the patch. Surfaced in
@@ -662,14 +693,18 @@ export const useViewerStore = defineStore('viewer', {
         focus: this.focusPath || undefined,
       }
     },
+    // Unanchored comments attach to the selected commit unless the scope toggle
+    // says review-level; anchored ones are already located by file and line.
     addComment(anchor: CommentAnchor | null, body: string) {
       const text = body.trim()
       if (!text) return
       if (!this.commentsDoc) this.commentsDoc = { version: 1, threads: [] }
+      const commit = !anchor && this.commentScope === 'commit' ? this.commentTargetSha : ''
       this.commentsDoc.threads.push({
         id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         status: 'open',
         anchor,
+        ...(commit ? { commit } : {}),
         comments: [{ author: 'reviewer', date: new Date().toISOString(), body: text }],
         _source: this.currentSource(),
       })
@@ -693,6 +728,9 @@ export const useViewerStore = defineStore('viewer', {
         else if (src.changes) await this.selectChanges(src.changes, preferFile)
         else if (src.shas && src.shas.length > 1) await this.setMultiSelection(src.shas, preferFile)
         else if (src.sha) await this.selectCommit(src.sha, preferFile)
+      } else if (thread.commit) {
+        // Loaded (non-draft) commit-level thread: the commit binding is enough.
+        await this.selectCommit(thread.commit, preferFile)
       } else if (preferFile && this.diffs?.files.some((f) => f.path === preferFile)) {
         this.selectFile(preferFile)
       }

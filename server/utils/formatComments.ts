@@ -4,8 +4,9 @@ import type { CommentThread } from '~/types/comments'
 // Plain text is purely an output concern, so this serializer lives server-side
 // only — the client renders threads structurally and never needs it.
 //
-// Grouped by file (line-sorted), PR-level threads under "General". Only the
-// threads passed in are emitted; the store already filters to authored drafts.
+// Grouped by file (line-sorted), then commit-level threads under their sha, then
+// review-level threads under "General". Only the threads passed in are emitted;
+// the store already filters to authored drafts.
 
 function anchorLabel(t: CommentThread): string {
   const a = t.anchor
@@ -34,10 +35,16 @@ export function formatCommentsText(threads: CommentThread[]): string {
   if (!authored.length) return '# Review comments (0)\n(none)'
 
   const byPath = new Map<string, CommentThread[]>()
+  const byCommit = new Map<string, CommentThread[]>()
   const general: CommentThread[] = []
   for (const t of authored) {
-    if (!t.anchor) general.push(t)
-    else (byPath.get(t.anchor.path) ?? byPath.set(t.anchor.path, []).get(t.anchor.path)!).push(t)
+    if (t.anchor) {
+      (byPath.get(t.anchor.path) ?? byPath.set(t.anchor.path, []).get(t.anchor.path)!).push(t)
+    } else if (t.commit) {
+      (byCommit.get(t.commit) ?? byCommit.set(t.commit, []).get(t.commit)!).push(t)
+    } else {
+      general.push(t)
+    }
   }
 
   const out: string[] = [`# Review comments (${authored.length})`]
@@ -49,6 +56,10 @@ export function formatCommentsText(threads: CommentThread[]): string {
       return la - lb
     })
     out.push('', `## ${path}`, ...sorted.map((t) => item(anchorLabel(t), threadBody(t))))
+  }
+
+  for (const sha of byCommit.keys()) {
+    out.push('', `## Commit ${sha}`, ...byCommit.get(sha)!.map((t) => item('', threadBody(t))))
   }
 
   if (general.length) {

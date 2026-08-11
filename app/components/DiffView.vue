@@ -120,6 +120,13 @@ function cancelWidget(onClose: () => void) {
   onClose()
   openWidget.value = null
 }
+const composerPlaceholder = computed(() => {
+  const sha = store.commentTargetSha
+  if (sha && store.commentScope === 'commit') {
+    return `Comment on commit ${sha.slice(0, 8)}…`
+  }
+  return 'General comment for this review…'
+})
 function isDraft(id: string) {
   return store.collect && id.startsWith('draft-')
 }
@@ -398,10 +405,27 @@ watch(
           </template>
           <template v-else>
             <div class="collect-hint">
-              Hover a diff line and click <strong>+</strong> to comment inline, or leave a general note below.
+              Hover a diff line and click <strong>+</strong> to comment inline, or leave a note below.
+            </div>
+            <div v-if="store.commentTargetSha" class="scope-pick">
+              <span class="scope-label">Note applies to</span>
+              <button
+                class="scope-btn"
+                :class="{ on: store.commentScope === 'commit' }"
+                @click="store.commentScope = 'commit'"
+              >
+                this commit
+              </button>
+              <button
+                class="scope-btn"
+                :class="{ on: store.commentScope === 'review' }"
+                @click="store.commentScope = 'review'"
+              >
+                whole review
+              </button>
             </div>
             <CommentComposer
-              placeholder="General comment for this review…"
+              :placeholder="composerPlaceholder"
               :cancellable="false"
               :autofocus="false"
               @save="(b) => store.addComment(null, b)"
@@ -457,8 +481,29 @@ watch(
             comments from {{ store.commentIndex.source.ref || store.commentIndex.source.kind }}
             <span class="comments-count">· {{ store.commentIndex.total }} threads</span>
           </span>
-          <div v-if="store.commentIndex.prLevel.length" class="pr-level-comments">
-            <template v-for="t in store.commentIndex.prLevel" :key="t.id">
+          <div v-if="store.commitLevelComments.length" class="pr-level-comments">
+            <div class="level-title">On this commit</div>
+            <template v-for="t in store.commitLevelComments" :key="t.id">
+              <CommentComposer
+                v-if="editingId === t.id"
+                submit-label="Save"
+                :initial-value="t.comments[0]?.body"
+                @save="(b) => saveEdit(t.id, b)"
+                @cancel="cancelEdit"
+              />
+              <CommentThread
+                v-else
+                :thread="t"
+                :editable="isDraft(t.id)"
+                :deletable="isDraft(t.id)"
+                @edit="startEdit(t.id)"
+                @delete="store.removeComment(t.id)"
+              />
+            </template>
+          </div>
+          <div v-if="store.commentIndex.reviewLevel.length" class="pr-level-comments">
+            <div v-if="store.commitLevelComments.length" class="level-title">On the whole review</div>
+            <template v-for="t in store.commentIndex.reviewLevel" :key="t.id">
               <CommentComposer
                 v-if="editingId === t.id"
                 submit-label="Save"
@@ -961,6 +1006,11 @@ watch(
 }
 .comments-count { color: #707a8c; }
 .pr-level-comments { margin-top: 6px; }
+.level-title {
+  font-size: 11px;
+  color: var(--fg-dim);
+  padding: 2px 0 4px;
+}
 .orphan-comments {
   margin-top: 8px;
   border: 1px solid rgba(242, 135, 121, 0.3);
@@ -998,6 +1048,30 @@ watch(
 .collect-hint { font-size: 12px; color: var(--fg-dim); margin: 0 8px 4px; }
 .collect-hint strong { color: #79b8ff; }
 .collect-done { font-size: 13px; color: #bae67e; }
+.scope-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 8px 6px;
+  font-size: 11px;
+}
+.scope-label { color: var(--fg-dim); }
+.scope-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  border-radius: 9px;
+  padding: 1px 9px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+.scope-btn:hover { color: var(--fg); }
+.scope-btn.on {
+  color: #79b8ff;
+  border-color: rgba(47, 129, 247, 0.5);
+  background: rgba(47, 129, 247, 0.14);
+}
 
 .nav-notice {
   padding: 6px 12px;

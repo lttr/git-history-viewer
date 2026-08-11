@@ -42,8 +42,14 @@ export interface ThreadSource {
 export interface CommentThread {
   id: string
   status: ThreadStatus
-  /** null = PR-level (no file). {path} only = file-level. {path,line} = inline. */
+  /** null = unanchored (no file). {path} only = file-level. {path,line} = inline. */
   anchor: CommentAnchor | null
+  /**
+   * Full sha this thread is about as a whole. Only meaningful for unanchored
+   * threads: with it the thread is commit-level and shows only while that commit
+   * is selected; without it the thread is review-level and shows everywhere.
+   */
+  commit?: string
   comments: Comment[]
   _source?: ThreadSource
 }
@@ -69,14 +75,17 @@ export interface FileComments {
 
 export interface CommentIndex {
   byPath: Record<string, FileComments>
-  prLevel: CommentThread[]
+  /** unanchored threads bound to one commit, keyed by full sha */
+  byCommit: Record<string, CommentThread[]>
+  /** unanchored threads with no commit — they apply to the whole review */
+  reviewLevel: CommentThread[]
   source?: CommentsDoc['source']
   anchoredTo?: CommentsDoc['anchoredTo']
   total: number
 }
 
 export function buildCommentIndex(doc: CommentsDoc | null): CommentIndex {
-  const idx: CommentIndex = { byPath: {}, prLevel: [], total: 0 }
+  const idx: CommentIndex = { byPath: {}, byCommit: {}, reviewLevel: [], total: 0 }
   if (!doc?.threads) return idx
   idx.source = doc.source
   idx.anchoredTo = doc.anchoredTo
@@ -85,7 +94,8 @@ export function buildCommentIndex(doc: CommentsDoc | null): CommentIndex {
     idx.total++
     const a = t.anchor
     if (!a) {
-      idx.prLevel.push(t)
+      if (t.commit) (idx.byCommit[t.commit] ??= []).push(t)
+      else idx.reviewLevel.push(t)
       continue
     }
     const fc = (idx.byPath[a.path] ??= {

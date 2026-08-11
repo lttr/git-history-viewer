@@ -85,7 +85,8 @@ Overlay review comments onto the diff with `gv --comments <file.json>`. Comments
 
 - **inline** — a thread attached to a file + line, shown under that line in the diff
 - **file-level** — a thread attached to a file (no line), shown under the file header
-- **PR-level** — a thread with no file, shown in a summary panel above the diff
+- **commit-level** — a thread with no file but a `commit` sha, shown above the diff only while that commit is selected
+- **review-level** — a thread with no file and no commit, shown in a summary panel above every diff
 
 Each file with comments gets a 💬 badge; resolved threads render dimmed. If a comment's line — or its whole file — isn't present in the diff you're viewing (different commit/range than it was authored against), it can't attach inline; instead it's collected in an **unattached comments** panel above the diff (with its `path:line`) so nothing is lost.
 
@@ -102,12 +103,13 @@ The viewer is source-agnostic — it reads this neutral JSON shape:
     {
       "id": "693641",
       "status": "open",                     // "open" | "resolved"
-      "anchor": {                            // null = PR-level
+      "anchor": {                            // null = no file
         "path": "src/foo.ts",                // repo-relative, no leading slash
         "side": "new",                       // "new" | "old"  (default "new")
         "line": 150,                         // omit for a file-level thread
         "endLine": 150                       // optional span end
       },
+      "commit": "<sha>",                     // optional; only with "anchor": null
       "comments": [
         { "author": "Jane Doe", "date": "2026-05-13T15:24:34Z", "body": "markdown text" }
       ]
@@ -116,7 +118,7 @@ The viewer is source-agnostic — it reads this neutral JSON shape:
 }
 ```
 
-`anchor` shapes: `null` → PR-level; `{path}` → file-level; `{path, line}` → inline. `body` supports a small markdown subset (fenced code, inline `code`, line breaks), HTML-escaped.
+`anchor` shapes: `null` → no file (review-level, or commit-level when `commit` is set); `{path}` → file-level; `{path, line}` → inline. `body` supports a small markdown subset (fenced code, inline `code`, line breaks), HTML-escaped.
 
 ### Importing (external)
 

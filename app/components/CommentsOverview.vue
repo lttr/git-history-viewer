@@ -64,9 +64,29 @@ function saveEdit(id: string, body: string) {
           />
         </template>
       </template>
-      <template v-if="store.commentIndex.prLevel.length">
+      <template v-for="c in store.commentsByCommit" :key="c.sha">
+        <div class="ov-group">{{ c.label }}</div>
+        <template v-for="t in c.threads" :key="t.id">
+          <CommentComposer
+            v-if="editingId === t.id"
+            submit-label="Save"
+            :initial-value="t.comments[0]?.body"
+            @save="(b) => saveEdit(t.id, b)"
+            @cancel="editingId = null"
+          />
+          <CommentRow
+            v-else
+            :thread="t"
+            :authored="isDraft(t.id)"
+            @navigate="store.navigateToComment(t)"
+            @edit="editingId = t.id"
+            @delete="store.removeComment(t.id)"
+          />
+        </template>
+      </template>
+      <template v-if="store.commentIndex.reviewLevel.length">
         <div class="ov-group">General</div>
-        <template v-for="t in store.commentIndex.prLevel" :key="t.id">
+        <template v-for="t in store.commentIndex.reviewLevel" :key="t.id">
           <CommentComposer
             v-if="editingId === t.id"
             submit-label="Save"

@@ -7,7 +7,7 @@ const emit = defineEmits<{ navigate: []; edit: []; delete: [] }>()
 
 const anchorLabel = computed(() => {
   const a = props.thread.anchor
-  if (!a) return 'General'
+  if (!a) return props.thread.commit ? `${props.thread.commit.slice(0, 8)} · commit` : 'General'
   if (a.line == null) return `${a.path} · file`
   const span = a.endLine && a.endLine !== a.line ? `${a.line}-${a.endLine}` : `${a.line}`
   return `${a.path}:${span}${a.side === 'old' ? ' (old)' : ''}`
