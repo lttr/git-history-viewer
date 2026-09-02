@@ -182,17 +182,50 @@ function toggleExpandAll() {
 let ioJustSet = ''
 let programmaticScroll = false
 let programmaticScrollTimeout: ReturnType<typeof setTimeout> | null = null
+let settleRaf: number | null = null
+
+// How long we keep re-measuring after a jump. Files render lazily behind
+// estimated-height placeholders, so anything above the target can grow (or
+// shrink) right after the scroll starts and drag the target away.
+const SCROLL_SETTLE_MS = 1200
+
+function fileTop(container: HTMLElement, path: string): number | null {
+  const target = container.querySelector<HTMLElement>(`#${fileId(path)}`)
+  if (!target) return null
+  // Rect-based, not offsetTop: the section's offsetParent isn't necessarily
+  // the scroll container.
+  return container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top
+}
 
 function scrollToFile(path: string) {
   const container = scrollEl.value
   if (!container) return
-  const target = container.querySelector<HTMLElement>(`#${fileId(path)}`)
-  if (!target) return
+  const top = fileTop(container, path)
+  if (top === null) return
+
   programmaticScroll = true
   if (programmaticScrollTimeout) clearTimeout(programmaticScrollTimeout)
-  programmaticScrollTimeout = setTimeout(() => { programmaticScroll = false }, 600)
-  const top = target.offsetTop - container.offsetTop
+  programmaticScrollTimeout = setTimeout(() => { programmaticScroll = false }, SCROLL_SETTLE_MS + 200)
+
   container.scrollTo({ top, behavior: 'smooth' })
+
+  // Correct the landing spot until the layout above stops moving.
+  if (settleRaf !== null) cancelAnimationFrame(settleRaf)
+  let want = top
+  const deadline = performance.now() + SCROLL_SETTLE_MS
+  const tick = () => {
+    settleRaf = null
+    const now = fileTop(container, path)
+    if (now === null) return
+    if (Math.abs(now - want) > 1) {
+      // The target itself moved: re-aim instantly (a smooth animation towards
+      // the stale position is already in flight and would overshoot).
+      want = now
+      container.scrollTo({ top: want, behavior: 'auto' })
+    }
+    if (performance.now() < deadline) settleRaf = requestAnimationFrame(tick)
+  }
+  settleRaf = requestAnimationFrame(tick)
 }
 
 watch(
@@ -281,7 +314,12 @@ watch(
 )
 
 onMounted(() => nextTick(setupObserver))
-onUnmounted(() => { io?.disconnect(); renderIo?.disconnect() })
+onUnmounted(() => {
+  io?.disconnect()
+  renderIo?.disconnect()
+  if (settleRaf !== null) cancelAnimationFrame(settleRaf)
+  if (programmaticScrollTimeout) clearTimeout(programmaticScrollTimeout)
+})
 
 function scrollToFileForce(path: string) {
   forceLoad(path)
@@ -311,6 +349,8 @@ function findLineRow(path: string, line: number, side: 'new' | 'old'): HTMLEleme
 }
 
 function flashLineRow(row: HTMLElement) {
+  // Stop scrollToFile's settle loop, or it would yank us back to the file top.
+  if (settleRaf !== null) { cancelAnimationFrame(settleRaf); settleRaf = null }
   row.scrollIntoView({ block: 'center', behavior: 'smooth' })
   row.classList.add('comment-target')
   setTimeout(() => row.classList.remove('comment-target'), 1500)
