@@ -44,7 +44,8 @@
     "preview": "nuxt preview",
     "prepare": "nuxt prepare",
     "start": "node bin/gv.mjs",
-    "prepublishOnly": "nuxt build"
+    "prepublishOnly": "nuxt build",
+    "release": "changelogen --release --push --no-github --noAuthors && pnpm publish"
   },
   "dependencies": {
     "marked": "^18.0.4",
@@ -53,6 +54,7 @@
   "devDependencies": {
     "@git-diff-view/vue": "^0.1.3",
     "@pinia/nuxt": "^0.11.3",
+    "changelogen": "^0.6.2",
     "nuxt": "^4.0.0",
     "pinia": "^3.0.0",
     "simple-git": "^3.27.0",
