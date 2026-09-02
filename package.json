@@ -1,6 +1,6 @@
 {
   "name": "@lttr/gv",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Browser-based git history viewer — commit list, file tree, diff. Run against any local repo.",
   "keywords": [
     "git",
