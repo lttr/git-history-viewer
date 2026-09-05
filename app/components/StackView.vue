@@ -1,15 +1,19 @@
 <script setup lang="ts">
-// The Stack layout: outline + document. It replaces the classic 3-pane grid so
-// the walkthrough gets the full width; `Esc` / `Diff` returns, and the URL keeps
-// review=1 so the classic state is exactly where it was left.
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+// The Stack layout, read as a story: the left column is the model's narrative
+// (one card per group, scrolled top to bottom), the right column is the files
+// that group touches — collapsed to a peek of their diff, expanded on click.
+// `Esc` / `Diff` returns to the classic pane with review=1 intact.
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 import { helpOpen } from '~/stores/ui'
+import type { FileDiff } from '~/stores/viewer'
 
 const store = useViewerStore()
-const docEl = ref<HTMLElement | null>(null)
+const storyEl = ref<HTMLElement | null>(null)
+const filesEl = ref<HTMLElement | null>(null)
 const currentGroup = ref('')
-const focusIndex = ref(-1)
+const focusIndex = ref(0)
+const expanded = ref<Set<string>>(new Set())
 const elapsed = ref(0)
 
 const groups = computed(() => store.stack?.groups ?? [])
@@ -19,90 +23,98 @@ const fileCount = computed(() => {
   return set.size
 })
 
-// Flat item list backing j/k; keys are what the DOM nodes carry.
-interface FlatItem { key: string; groupId: string; path: string; line?: number }
-const flatItems = computed<FlatItem[]>(() =>
-  groups.value.flatMap((g) =>
-    g.items.map((i) => ({
-      key: `${g.id}:${i.path}`,
-      groupId: g.id,
-      path: i.path,
-      line: i.hunks[0]?.newStart,
-    })),
-  ),
+const activeGroup = computed(() =>
+  groups.value.find((g) => g.id === currentGroup.value) ?? groups.value[0] ?? null,
 )
+const activeIndex = computed(() => groups.value.findIndex((g) => g.id === activeGroup.value?.id))
+const items = computed(() => activeGroup.value?.items ?? [])
 
-function itemEl(key: string) {
-  return docEl.value?.querySelector<HTMLElement>(`[data-stack-item="${CSS.escape(key)}"]`) ?? null
+// The branch diff is already loaded for the classic pane; the stack reuses it
+// so every file renders as a real highlighted diff rather than raw patch text.
+const byPath = computed<Record<string, FileDiff>>(() => {
+  const map: Record<string, FileDiff> = {}
+  for (const f of store.diffs?.files ?? []) map[f.path] = f
+  return map
+})
+
+function cardKey(path: string) {
+  return `${activeGroup.value?.id ?? ''}:${path}`
 }
-function groupHeadEl(id: string) {
-  return docEl.value?.querySelector<HTMLElement>(`[data-group-head="${CSS.escape(id)}"]`) ?? null
+function isExpanded(path: string) {
+  return expanded.value.has(cardKey(path))
+}
+function toggle(path: string) {
+  const next = new Set(expanded.value)
+  const k = cardKey(path)
+  if (next.has(k)) next.delete(k)
+  else next.add(k)
+  expanded.value = next
+}
+const allExpanded = computed(() =>
+  items.value.length > 0 && items.value.every((i) => isExpanded(i.path)),
+)
+function toggleAll() {
+  const next = new Set(expanded.value)
+  for (const i of items.value) {
+    if (allExpanded.value) next.delete(cardKey(i.path))
+    else next.add(cardKey(i.path))
+  }
+  expanded.value = next
 }
 
-function focusItem(next: number) {
-  const items = flatItems.value
-  if (!items.length) return
-  const idx = Math.max(0, Math.min(items.length - 1, next))
-  focusIndex.value = idx
-  const el = itemEl(items[idx].key)
-  el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  el?.focus({ preventScroll: true })
+function selectGroup(id: string, { scrollStory = false } = {}) {
+  currentGroup.value = id
+  focusIndex.value = 0
+  nextTick(() => {
+    filesEl.value?.scrollTo({ top: 0 })
+    if (scrollStory) {
+      storyEl.value
+        ?.querySelector<HTMLElement>(`[data-group="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
+  })
 }
 
 function stepGroup(delta: number) {
   const list = groups.value
   if (!list.length) return
-  let idx = list.findIndex((g) => g.id === currentGroup.value)
-  if (idx < 0) idx = 0
-  const next = Math.max(0, Math.min(list.length - 1, idx + delta))
-  scrollToGroup(list[next].id)
+  const idx = Math.max(0, Math.min(list.length - 1, activeIndex.value + delta))
+  const next = list[idx]
+  if (next) selectGroup(next.id, { scrollStory: true })
 }
 
-function scrollToGroup(id: string) {
-  groupHeadEl(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  currentGroup.value = id
-  const first = flatItems.value.findIndex((i) => i.groupId === id)
-  if (first >= 0) focusIndex.value = first
+function focusCard(next: number) {
+  const list = items.value
+  if (!list.length) return
+  focusIndex.value = Math.max(0, Math.min(list.length - 1, next))
+  const path = list[focusIndex.value]?.path
+  if (!path) return
+  const el = filesEl.value?.querySelector<HTMLElement>(`[data-card="${CSS.escape(path)}"]`)
+  el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
 }
 
-function openFocused() {
-  const item = flatItems.value[focusIndex.value]
-  if (item) store.openStackHunk(item.path, item.line)
+function openInDiff(path: string, line?: number) {
+  store.openStackHunk(path, line)
 }
 
 function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
   if (e.metaKey || e.ctrlKey || e.altKey || helpOpen.value) return
-  const key = e.key
-  if (key === 'Escape') { e.preventDefault(); store.closeStack(); return }
-  if (key === 'Enter') { e.preventDefault(); openFocused(); return }
-  if (key === ']') { e.preventDefault(); stepGroup(1); return }
-  if (key === '[') { e.preventDefault(); stepGroup(-1); return }
-  if (key === 'j') { e.preventDefault(); focusItem(focusIndex.value + 1); return }
-  if (key === 'k') { e.preventDefault(); focusItem(focusIndex.value - 1) }
-}
-
-// Scroll spy: the topmost group header still above the fold wins.
-let observer: IntersectionObserver | null = null
-function observeGroups() {
-  observer?.disconnect()
-  if (!docEl.value) return
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue
-        const id = (entry.target as HTMLElement).dataset.groupHead
-        if (id) currentGroup.value = id
-      }
-    },
-    { root: docEl.value, rootMargin: '0px 0px -70% 0px', threshold: 0 },
-  )
-  for (const el of docEl.value.querySelectorAll('[data-group-head]')) observer.observe(el)
+  const focused = items.value[focusIndex.value]
+  switch (e.key) {
+    case 'Escape': e.preventDefault(); store.closeStack(); break
+    case ']': e.preventDefault(); stepGroup(1); break
+    case '[': e.preventDefault(); stepGroup(-1); break
+    case 'j': e.preventDefault(); focusCard(focusIndex.value + 1); break
+    case 'k': e.preventDefault(); focusCard(focusIndex.value - 1); break
+    case 'Enter': if (focused) { e.preventDefault(); toggle(focused.path) } break
+    case 'o': if (focused) { e.preventDefault(); openInDiff(focused.path, focused.hunks[0]?.newStart) } break
+  }
 }
 
 watch(() => groups.value.length, () => {
-  if (!currentGroup.value && groups.value[0]) currentGroup.value = groups.value[0].id
-  requestAnimationFrame(observeGroups)
+  const first = groups.value[0]
+  if (!currentGroup.value && first) selectGroup(first.id)
 })
 
 let timer: ReturnType<typeof setInterval> | null = null
@@ -115,13 +127,9 @@ watch(() => store.stackStatus, (status) => {
   }, 1000)
 }, { immediate: true })
 
-onMounted(() => {
-  window.addEventListener('keydown', onKey)
-  requestAnimationFrame(observeGroups)
-})
+onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
-  observer?.disconnect()
   if (timer) clearInterval(timer)
 })
 </script>
@@ -139,6 +147,12 @@ onUnmounted(() => {
         </span>
         <div class="head-actions">
           <button
+            :title="store.diffWrap ? 'Disable line wrapping' : 'Enable line wrapping'"
+            @click="store.toggleDiffWrap()"
+          >
+            {{ store.diffWrap ? 'Wrap: on' : 'Wrap: off' }}
+          </button>
+          <button
             :disabled="store.stackStatus === 'loading'"
             title="Regenerate the stack"
             @click="store.buildStack({ force: true })"
@@ -148,35 +162,76 @@ onUnmounted(() => {
           <button title="Back to the classic diff (Esc)" @click="store.closeStack()">Diff</button>
         </div>
       </div>
-      <h1 v-if="store.stack?.title" class="stack-title">{{ store.stack.title }}</h1>
-      <p v-if="store.stack?.summary" class="stack-summary">{{ store.stack.summary }}</p>
       <p v-if="store.stackError" class="stack-error">{{ store.stackError }}</p>
     </div>
 
     <div class="body">
-      <nav class="outline">
+      <div ref="storyEl" class="story">
+        <header v-if="store.stack?.title" class="story-head">
+          <h1>{{ store.stack.title }}</h1>
+          <p v-if="store.stack.summary">{{ store.stack.summary }}</p>
+        </header>
+
         <button
           v-for="(g, i) in groups"
           :key="g.id"
-          class="outline-row"
-          :class="{ on: g.id === currentGroup }"
-          @click="scrollToGroup(g.id)"
+          class="chapter"
+          :class="{ on: g.id === activeGroup?.id }"
+          :data-group="g.id"
+          @click="selectGroup(g.id)"
         >
-          <span class="o-num">{{ i + 1 }}</span>
-          <span class="o-title">{{ g.title }}</span>
-          <span class="o-count">{{ g.items.length }}</span>
+          <div class="chapter-head">
+            <span class="num">{{ i + 1 }}</span>
+            <h2>{{ g.title }}</h2>
+            <span class="kind" :class="`kind-${g.kind}`">{{ g.kind }}</span>
+          </div>
+          <p v-if="g.summary" class="chapter-summary">{{ g.summary }}</p>
+          <div class="chapter-files">
+            <span v-for="it in g.items" :key="it.path" class="chip">
+              {{ it.path.split('/').pop() }}
+            </span>
+          </div>
         </button>
-      </nav>
 
-      <div ref="docEl" class="document">
-        <StackGroup
-          v-for="(g, i) in groups"
-          :key="g.id"
-          :group="g"
-          :index="i"
-          @open="(path, line) => store.openStackHunk(path, line)"
-        />
-        <div v-if="store.stackStatus === 'loading'" class="pending">Grouping the rest…</div>
+        <p v-if="store.stackStatus === 'loading'" class="pending">Grouping the rest…</p>
+      </div>
+
+      <div class="files-pane">
+        <div v-if="activeGroup" class="files-head">
+          <span class="files-title">
+            {{ activeIndex + 1 }}. {{ activeGroup.title }} · {{ items.length }} files
+          </span>
+          <div class="files-actions">
+            <button @click="stepGroup(-1)" :disabled="activeIndex <= 0" title="Previous group ([)">↑</button>
+            <button
+              :disabled="activeIndex >= groups.length - 1"
+              title="Next group (])"
+              @click="stepGroup(1)"
+            >↓</button>
+            <button v-if="items.length" @click="toggleAll">
+              {{ allExpanded ? 'Collapse all' : 'Expand all' }}
+            </button>
+          </div>
+        </div>
+        <div ref="filesEl" class="files">
+          <div
+            v-for="(it, i) in items"
+            :key="it.path"
+            class="card-slot"
+            :class="{ focused: i === focusIndex }"
+            :data-card="it.path"
+          >
+            <StackFileCard
+              :item="it"
+              :file="byPath[it.path]"
+              :expanded="isExpanded(it.path)"
+              :wrap="store.diffWrap"
+              @toggle="toggle(it.path)"
+              @open="(line) => openInDiff(it.path, line)"
+            />
+          </div>
+          <p v-if="!items.length" class="empty">Nothing grouped here yet.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -215,51 +270,98 @@ onUnmounted(() => {
 }
 .tag.live { color: var(--accent); }
 .head-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.stack-title {
-  margin: 6px 0 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--fg);
-}
-.stack-summary { margin: 3px 0 0; font-size: 12px; color: var(--fg-dim); }
 .stack-error { margin: 6px 0 0; font-size: 12px; color: var(--red); }
 
 .body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: minmax(280px, 380px) 1fr;
 }
-.outline {
+
+/* --- left: the story --- */
+.story {
   border-right: 1px solid var(--border);
   overflow-y: auto;
-  padding: 8px 0;
   background: var(--bg-2);
+  padding: 12px 12px 40vh;
 }
-.outline-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+.story-head { padding: 0 4px 10px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.story-head h1 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
+.story-head p { margin: 4px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.5; }
+.chapter {
+  display: block;
   width: 100%;
   text-align: left;
   background: transparent;
-  border: none;
-  border-left: 2px solid transparent;
-  padding: 6px 12px;
-  color: var(--fg-dim);
+  border: 1px solid transparent;
+  border-left: 2px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 10px;
+  margin-bottom: 4px;
   font: inherit;
-  font-size: 12px;
   cursor: pointer;
 }
-.outline-row:hover { color: var(--fg); background: var(--bg-3); }
-.outline-row.on { color: var(--fg); border-left-color: var(--accent); background: var(--bg-3); }
-.o-num { font-family: var(--mono); font-size: 11px; min-width: 12px; }
-.o-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.o-count { font-size: 10px; color: #707a8c; }
-
-.document {
-  overflow-y: auto;
-  padding-bottom: 40vh;
+.chapter:hover { background: var(--bg-3); }
+.chapter.on { background: var(--bg-3); border-left-color: var(--accent); }
+.chapter-head { display: flex; align-items: baseline; gap: 8px; }
+.num { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); min-width: 12px; }
+.chapter-head h2 { margin: 0; flex: 1; font-size: 13px; font-weight: 600; color: var(--fg); }
+.kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg-dim);
 }
-.pending { padding: 16px 20px; color: var(--fg-dim); font-size: 12px; }
+.kind-feat { color: var(--green); }
+.kind-fix { color: var(--red); }
+.kind-refactor { color: var(--purple); }
+.kind-test { color: var(--yellow); }
+.chapter-summary {
+  margin: 4px 0 0 20px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+.chapter-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 20px; }
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #7c8698;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.pending { padding: 10px 4px; color: var(--fg-dim); font-size: 12px; }
+
+/* --- right: the files --- */
+.files-pane { display: flex; flex-direction: column; min-width: 0; }
+.files-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  font-size: 12px;
+}
+.files-title { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.files-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.files {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 40vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card-slot { border-radius: 7px; }
+.card-slot.focused { box-shadow: 0 0 0 2px var(--accent); }
+.empty { color: var(--fg-dim); font-size: 12px; }
 </style>
