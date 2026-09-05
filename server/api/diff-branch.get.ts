@@ -18,20 +18,6 @@ interface DiffBranchPayload {
 
 const cache = new LRU<DiffBranchPayload>(40)
 
-function splitPatchByFile(raw: string): Map<string, string> {
-  const out = new Map<string, string>()
-  if (!raw) return out
-  const chunks = raw.split(/^diff --git /m)
-  for (let i = 1; i < chunks.length; i++) {
-    const chunk = 'diff --git ' + chunks[i]
-    const first = chunk.split('\n', 1)[0]
-    const m = first.match(/ b\/(.+)$/)
-    if (!m) continue
-    out.set(m[1].trim(), chunk)
-  }
-  return out
-}
-
 export default defineEventHandler(async (event) => {
   const q = getQuery(event)
   const range = typeof q.range === 'string' ? q.range.trim() : ''

@@ -362,6 +362,40 @@ function showNavMiss(path: string, line: number) {
   navNoticeTimer = setTimeout(() => { navNotice.value = '' }, 5000)
 }
 
+// --- change stack entry point ---
+const stackElapsed = ref(0)
+let stackTimer: ReturnType<typeof setInterval> | null = null
+watch(() => store.stackStatus, (status) => {
+  if (stackTimer) { clearInterval(stackTimer); stackTimer = null }
+  if (status !== 'loading') return
+  stackElapsed.value = 0
+  stackTimer = setInterval(() => {
+    stackElapsed.value = Math.round((Date.now() - store.stackStartedAt) / 1000)
+  }, 1000)
+})
+onUnmounted(() => { if (stackTimer) clearInterval(stackTimer) })
+
+const stackLabel = computed(() => {
+  if (store.stackStatus !== 'loading') return 'Stack'
+  const files = store.stackFiles || store.diffs?.files.length || 0
+  return `Grouping ${files} files… ${stackElapsed.value}s`
+})
+const stackTitle = computed(() => {
+  if (store.stackStatus === 'loading') return 'Click to cancel grouping'
+  if (store.stack) return 'Open the intent-grouped stack view'
+  return 'Group this branch by intent (runs the local Claude Code CLI)'
+})
+
+// One-line, self-hiding: a failed grouping must not disturb the classic review.
+const stackNotice = ref('')
+let stackNoticeTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => store.stackError, (message) => {
+  if (stackNoticeTimer) clearTimeout(stackNoticeTimer)
+  stackNotice.value = message
+  if (!message) return
+  stackNoticeTimer = setTimeout(() => { stackNotice.value = '' }, 8000)
+})
+
 watch(
   () => store.pendingScrollLine,
   (p) => {
@@ -406,6 +440,15 @@ watch(
       </span>
       <div class="header-actions">
         <button
+          v-if="store.isReview && !store.focusPath"
+          class="stack-btn"
+          :class="{ busy: store.stackStatus === 'loading' }"
+          :title="stackTitle"
+          @click="store.openStack()"
+        >
+          {{ stackLabel }}
+        </button>
+        <button
           v-if="store.collect && !store.submitted"
           class="finish-btn"
           :title="store.draftThreads.length ? 'Send comments to the agent and exit' : 'Add at least one comment first'"
@@ -433,6 +476,7 @@ watch(
       </div>
     </div>
     <div v-if="navNotice" class="nav-notice">{{ navNotice }}</div>
+    <div v-if="stackNotice" class="stack-notice">{{ stackNotice }}</div>
     <div ref="scrollEl" class="body">
       <div v-if="!store.diffs" class="state">
         {{ store.diffsLoading ? 'Loading…' : 'Select a commit' }}
@@ -1067,6 +1111,14 @@ watch(
 .ct-widget { padding: 2px 0; }
 
 /* collect (authoring) mode */
+.stack-btn.busy { color: var(--accent); }
+.stack-notice {
+  padding: 6px 12px;
+  background: #2b1d20;
+  border-bottom: 1px solid var(--border);
+  color: var(--red);
+  font-size: 12px;
+}
 .finish-btn {
   background: #2f81f7;
   color: #fff;

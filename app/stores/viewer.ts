@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
 import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor, CommentSide, ThreadSource } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
+import type { ChangeStack, StackGroup } from '~/types/stack'
 
 // Line numbers present in a unified-diff patch, per side. Used to detect
 // inline comments anchored to a line that isn't in the diff being viewed.
@@ -33,6 +34,35 @@ function scopeKey(s: Pick<ThreadSource, 'sha' | 'shas' | 'changes' | 'review'>):
 }
 
 let selectFetchId = 0
+// Only one stack build can be in flight; a new one cancels the old.
+let stackAbort: AbortController | null = null
+
+/**
+ * Minimal SSE reader for a POST response (EventSource is GET-only).
+ * Yields one `{ event, data }` per `\n\n`-delimited frame.
+ */
+async function* readSse(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    let sep: number
+    while ((sep = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, sep)
+      buf = buf.slice(sep + 2)
+      let event = 'message'
+      const data: string[] = []
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
+      }
+      if (data.length) yield { event, data: data.join('\n') }
+    }
+  }
+}
 const commitCache = new Map<string, { detail: CommitDetail; diffs: DiffsPayload }>()
 const MAX_CACHE = 100
 function cacheKey(sha: string, focus: string) {
@@ -111,10 +141,11 @@ interface UrlState {
   focus: string
   changes: ChangesKind | ''
   review: boolean
+  stack: boolean
 }
 
 function readUrl(): UrlState {
-  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '', review: false }
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '', review: false, stack: false }
   const p = new URLSearchParams(window.location.search)
   const shaRaw = p.get('sha') ?? ''
   const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
@@ -128,6 +159,7 @@ function readUrl(): UrlState {
     focus: p.get('focus') ?? '',
     changes,
     review: p.get('review') === '1',
+    stack: p.get('stack') === '1',
   }
 }
 
@@ -148,6 +180,7 @@ function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace'
   }
   if (patch.changes !== undefined) setOrDel('changes', patch.changes)
   if (patch.review !== undefined) setOrDel('review', patch.review ? '1' : '')
+  if (patch.stack !== undefined) setOrDel('stack', patch.stack ? '1' : '')
   if (patch.file !== undefined) setOrDel('file', patch.file)
   if (patch.focus !== undefined) setOrDel('focus', patch.focus)
   url.hash = ''
@@ -213,6 +246,13 @@ export const useViewerStore = defineStore('viewer', {
     overviewTab: 'commits' as 'commits' | 'comments',
     // Set by navigateToComment; DiffView watches it to scroll to + flash a line.
     pendingScrollLine: null as { path: string; line: number; side: CommentSide } | null,
+    // --- change stack (intent-grouped branch walkthrough) ---
+    stack: null as ChangeStack | null,
+    stackStatus: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
+    stackError: '' as string,
+    stackView: false,
+    stackFiles: 0,
+    stackStartedAt: 0,
   }),
   getters: {
     commentIndex(): CommentIndex {
@@ -308,6 +348,11 @@ export const useViewerStore = defineStore('viewer', {
     canReview(): boolean {
       return /\.\.\.?/.test(this.range)
     },
+    // Stack view only replaces the layout once there is something to show; a
+    // failed or pending build leaves the classic review untouched.
+    stackActive(): boolean {
+      return this.isReview && !this.focusPath && this.stackView && this.stack !== null
+    },
     selectedCommits(): Commit[] {
       const set = new Set(this.selectedShas)
       return this.commits.filter((c) => set.has(c.hash))
@@ -353,6 +398,11 @@ export const useViewerStore = defineStore('viewer', {
       } else if (this.commits[0]) {
         await this.selectCommit(this.commits[0].hash)
       }
+      if (urlState.stack && this.isReview) {
+        // Reload never regenerates: the stack opens only if one is on disk.
+        if (await this.loadPersistedStack()) this.stackView = true
+        else writeUrl({ stack: false })
+      }
       this.initialSnapshot = {
         range: this.range,
         focus: this.focusPath,
@@ -383,6 +433,10 @@ export const useViewerStore = defineStore('viewer', {
       this.selectedFile = ''
       this.selectedChanges = ''
       this.selectedReview = false
+      this.cancelStack()
+      this.stack = null
+      this.stackStatus = 'idle'
+      this.stackView = false
       commitCache.clear()
       writeUrl(
         { range: snap.range, focus: snap.focus, shas: [], changes: '', review: false, file: '' },
@@ -463,6 +517,12 @@ export const useViewerStore = defineStore('viewer', {
       await this.reloadCommits()
       if (this.selectedReview) await this.selectBranchReview()
     },
+    async refreshContext() {
+      try {
+        this.context = await $fetch<RepoContext>('/api/context')
+        this.invalidateStaleStack()
+      } catch {}
+    },
     async reloadCommits() {
       this.commits = []
       this.commitsDone = false
@@ -477,6 +537,7 @@ export const useViewerStore = defineStore('viewer', {
         this.selectedFile = ''
       }
       await this.loadMore({ autoSelect: !keepSelection })
+      await this.refreshContext()
     },
     async refreshChanges() {
       try {
@@ -490,6 +551,7 @@ export const useViewerStore = defineStore('viewer', {
     async selectChanges(kind: ChangesKind, preferFile = '') {
       this.selectedChanges = kind
       this.selectedReview = false
+      this.closeStack()
       this.selectedSha = ''
       this.selectedShas = []
       this.lastPivotSha = ''
@@ -578,6 +640,7 @@ export const useViewerStore = defineStore('viewer', {
     async selectCommit(sha: string, preferFile = '') {
       this.selectedChanges = ''
       this.selectedReview = false
+      this.closeStack()
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
@@ -630,6 +693,7 @@ export const useViewerStore = defineStore('viewer', {
       }
       this.selectedChanges = ''
       this.selectedReview = false
+      this.closeStack()
       this.selectedShas = unique
       this.selectedSha = unique[0]
       if (!this.lastPivotSha || !unique.includes(this.lastPivotSha)) {
@@ -780,6 +844,122 @@ export const useViewerStore = defineStore('viewer', {
     removeComment(id: string) {
       if (!this.commentsDoc) return
       this.commentsDoc.threads = this.commentsDoc.threads.filter((t) => t.id !== id)
+    },
+
+    // --- change stack ---
+    // Runs the local Claude Code CLI through the server and fills `stack` as
+    // groups arrive, so the view opens long before the model is done.
+    async buildStack(opts: { force?: boolean } = {}) {
+      if (!this.canReview) return
+      this.cancelStack()
+      const controller = new AbortController()
+      stackAbort = controller
+      this.stackStatus = 'loading'
+      this.stackError = ''
+      this.stackStartedAt = Date.now()
+      if (opts.force) this.stack = null
+      try {
+        const res = await fetch('/api/stack', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ range: this.range, force: !!opts.force }),
+          signal: controller.signal,
+        })
+        if (!res.ok || !res.body) {
+          let message = `Stack request failed (${res.status})`
+          try {
+            const body = await res.json()
+            if (body?.message) message = body.message
+          } catch {}
+          throw new Error(message)
+        }
+        for await (const frame of readSse(res.body)) {
+          let payload: any
+          try { payload = JSON.parse(frame.data) } catch { continue }
+          if (frame.event === 'meta') {
+            this.stackFiles = payload.files ?? 0
+          } else if (frame.event === 'header') {
+            this.stack = {
+              base: this.range, head: '', headSha: '', mergeBase: '',
+              title: payload.title ?? '', summary: payload.summary ?? '',
+              groups: [], model: '', durationMs: 0, createdAt: '', truncated: false,
+            }
+            this.openStackView()
+          } else if (frame.event === 'group') {
+            if (!this.stack) continue
+            this.stack.groups = [...this.stack.groups, payload as StackGroup]
+          } else if (frame.event === 'done') {
+            this.stack = payload as ChangeStack
+            this.stackStatus = 'ready'
+            this.openStackView()
+          } else if (frame.event === 'error') {
+            throw new Error(payload?.message || 'Grouping failed')
+          }
+        }
+        if (this.stackStatus === 'loading') {
+          // Stream ended without a `done` frame.
+          if (this.stack?.groups.length) this.stackStatus = 'ready'
+          else throw new Error('Grouping ended without a result')
+        }
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return
+        this.stackStatus = 'error'
+        this.stackError = e?.message || 'Grouping failed'
+        if (!this.stack?.groups.length) {
+          this.stack = null
+          this.closeStack()
+        }
+      } finally {
+        if (stackAbort === controller) stackAbort = null
+      }
+    },
+    cancelStack() {
+      if (!stackAbort) return
+      stackAbort.abort()
+      stackAbort = null
+      if (this.stackStatus === 'loading') this.stackStatus = this.stack ? 'ready' : 'idle'
+    },
+    openStackView() {
+      if (this.stackView) return
+      this.stackView = true
+      writeUrl({ stack: true })
+    },
+    // The Stack button: reuse what's already grouped, otherwise generate.
+    openStack() {
+      if (this.stackStatus === 'loading') { this.cancelStack(); return }
+      if (this.stack) { this.openStackView(); return }
+      this.buildStack()
+    },
+    closeStack() {
+      this.stackView = false
+      writeUrl({ stack: false })
+    },
+    async loadPersistedStack(): Promise<boolean> {
+      if (!this.canReview) return false
+      try {
+        this.stack = await $fetch<ChangeStack>('/api/stack', { query: { range: this.range } })
+        this.stackStatus = 'ready'
+        return true
+      } catch {
+        this.stack = null
+        this.stackStatus = 'idle'
+        return false
+      }
+    },
+    // A stack describes one exact head commit; anything newer invalidates it.
+    // The persisted file for the old sha stays on disk.
+    invalidateStaleStack() {
+      const head = this.context?.head
+      if (!head || !this.stack || this.stack.headSha === head) return
+      this.stack = null
+      this.stackStatus = 'idle'
+      this.closeStack()
+    },
+    // Leave the stack and land on the referenced hunk in the classic diff.
+    openStackHunk(path: string, line?: number) {
+      this.closeStack()
+      this.selectFile(path)
+      if (line != null) this.pendingScrollLine = { path, line, side: 'new' }
     },
     async finishReview() {
       const doc: CommentsDoc = { version: 1, threads: this.draftThreads }
