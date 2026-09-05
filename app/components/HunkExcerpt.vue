@@ -2,9 +2,9 @@
 // Deliberately not @git-diff-view: that component wants full file contents and
 // split-mode plumbing. The skim view only needs the patch lines themselves.
 import { computed } from 'vue'
-import type { StackHunk } from '~/types/stack'
+import type { StoryHunk } from '~/types/story'
 
-const props = defineProps<{ hunk: StackHunk }>()
+const props = defineProps<{ hunk: StoryHunk }>()
 const emit = defineEmits<{ (e: 'open'): void }>()
 
 interface Row { num: number | null; kind: 'add' | 'del' | 'ctx' | 'meta'; text: string }

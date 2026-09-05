@@ -41,8 +41,8 @@ function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   if (helpOpen.value) return
-  // Stack view owns the keyboard while it is open (see StackView.vue).
-  if (store.stackActive) return
+  // Story view owns the keyboard while it is open (see StoryView.vue).
+  if (store.storyActive) return
   const key = e.key.toLowerCase()
   if ((key === 'n' || key === 'p') && e.shiftKey) {
     e.preventDefault()
@@ -119,7 +119,7 @@ function stepFile(delta: number) {
 </script>
 
 <template>
-  <StackView v-if="store.stackActive" />
+  <StoryView v-if="store.storyActive" />
   <div v-else class="layout" :class="{ focused: !!store.focusPath }">
     <div class="pane pane-commits left-pane">
       <div class="left-tabs">
@@ -146,7 +146,7 @@ function stepFile(delta: number) {
     <DiffView class="pane pane-diff" />
     <HotkeyHelp />
   </div>
-  <HotkeyHelp v-if="store.stackActive" />
+  <HotkeyHelp v-if="store.storyActive" />
 </template>
 
 <style scoped>

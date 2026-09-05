@@ -1,4 +1,4 @@
-// Builds the plain-text prompt input for the change stack: the branch's files
+// Builds the plain-text prompt input for the changeset story: the branch's files
 // and their hunks, pre-numbered as "path#n" so the model can reference exact
 // regions instead of copying line ranges.
 
@@ -23,7 +23,7 @@ export interface InputFile {
   omitted: boolean
 }
 
-export interface StackInput {
+export interface StoryInput {
   text: string
   files: InputFile[]
   hunksById: Map<string, InputHunk>
@@ -91,7 +91,7 @@ export interface BuildInputArgs {
 const DEFAULT_BUDGET = 200_000
 const MAX_COMMITS = 50
 
-export function buildStackInput(args: BuildInputArgs): StackInput {
+export function buildStoryInput(args: BuildInputArgs): StoryInput {
   const budget = args.budget ?? DEFAULT_BUDGET
 
   const files: InputFile[] = args.files.map((f) => {
@@ -155,19 +155,19 @@ function renderBodies(files: InputFile[], perFileBudget: number): string {
   return out.join('\n')
 }
 
-export interface StackSource {
+export interface StorySource {
   base: string
   head: string
   headSha: string
   mergeBase: string
-  input: StackInput
+  input: StoryInput
 }
 
 /**
  * Resolve a `base..head` range to the same three-dot diff the branch review
  * shows, plus the commit subjects, and turn it into model input.
  */
-export interface StackRefs {
+export interface StoryRefs {
   base: string
   head: string
   headSha: string
@@ -177,7 +177,7 @@ export interface StackRefs {
 }
 
 /** Parse and resolve a `base..head` range without touching the patch. */
-export async function resolveStackRefs(range: string): Promise<StackRefs> {
+export async function resolveStoryRefs(range: string): Promise<StoryRefs> {
   const m = range.match(/^(.*?)(\.\.\.?)(.*)$/)
   if (!m) throw createError({ statusCode: 400, message: 'range must be base..HEAD' })
   const base = m[1].trim()
@@ -201,8 +201,8 @@ export async function resolveStackRefs(range: string): Promise<StackRefs> {
  * Resolve a `base..head` range to the same three-dot diff the branch review
  * shows, plus the commit subjects, and turn it into model input.
  */
-export async function collectStackSource(range: string): Promise<StackSource> {
-  const refs = await resolveStackRefs(range)
+export async function collectStorySource(range: string): Promise<StorySource> {
+  const refs = await resolveStoryRefs(range)
   const { base, head, headSha, mergeBase, spec } = refs
   const git = useGit()
 
@@ -244,6 +244,6 @@ export async function collectStackSource(range: string): Promise<StackSource> {
   const repoPath: string = cfg.repoPath
   const repo = repoPath.replace(/\/+$/, '').split('/').pop() || repoPath
 
-  const input = buildStackInput({ repo, branch, range: spec, commits, files })
+  const input = buildStoryInput({ repo, branch, range: spec, commits, files })
   return { base, head, headSha, mergeBase, input }
 }

@@ -61,7 +61,7 @@ Dev server on `http://localhost:3000`.
 - `Esc` — close help
 - Top-right button in diff pane — toggle side-by-side / unified
 
-In [Stack view](#stack-view):
+In [Story view](#story-view):
 
 - `j` / `k` — next / previous item
 - `]` / `[` — next / previous group
@@ -79,7 +79,7 @@ Top bar filters commits by any git rev range (`main..HEAD`, `v1.0..HEAD`, `HEAD`
 - `#<short-hash>` — preselect commit
 - `?range=main..HEAD` — preset range
 - `?changes=staged` / `?changes=unstaged` — preselect uncommitted changes view
-- `?review=1&stack=1` — reopen the Stack view (only if a stack was already generated for that base/head)
+- `?review=1&story=1` — reopen the Story view (only if a story was already generated for that base/head)
 
 All are written back to the URL as you navigate.
 
@@ -140,9 +140,9 @@ gv --comments pr.json
 
 `examples/azure-to-gv.jq` (drops `system`/policy threads, normalizes `fixed`→`resolved`, strips the leading `/` from paths, maps `rightFileStart`→`new` side) maps the Azure thread shape onto v1.
 
-## Stack view
+## Story view
 
-In **branch review**, the `Stack` button regroups the branch by *intent*: an
+In **branch review**, the `Story` button regroups the branch by *intent*: an
 ordered list of change groups, each with a one-line summary and only the hunks
 that belong to it. It's a skim layer — the classic diff stays the source of
 truth, and a click on any file path or excerpt jumps straight to that line in it.
@@ -154,7 +154,7 @@ truth, and a click on any file path or excerpt jumps straight to that line in it
   subjects. Lockfiles, binaries and generated output are listed by name only,
   never with their contents. Nothing runs until you click the button — that click
   is the consent.
-- **Results are cached** at `<git-dir>/gv/stack/<mergeBase>-<headSha>.json`, so a
+- **Results are cached** at `<git-dir>/gv/story/<mergeBase>-<headSha>.json`, so a
   reload reuses them. Nothing is written into your working tree. `↻ Regenerate`
   overwrites the cached result; a new commit invalidates it.
 - Groups stream in as the model produces them, so the view opens after a few
@@ -166,7 +166,7 @@ truth, and a click on any file path or excerpt jumps straight to that line in it
 - `server/api/` — Nitro routes
 - `server/utils/git.ts` — `simple-git` singleton, rooted at `GV_REPO_PATH`
 - `server/utils/cache.ts` — LRU for commit/diff payloads
-- `server/utils/stack*.ts` — change stack: model input, prompt, repair, persistence
+- `server/utils/story*.ts` — changeset story: model input, prompt, repair, persistence
 - `bin/gv.mjs` — CLI entry, boots built Nitro and opens browser
 
 ## API
@@ -182,8 +182,8 @@ truth, and a click on any file path or excerpt jumps straight to that line in it
 | `GET /api/changes` | counts of staged + unstaged changes |
 | `GET /api/changes/:kind` | diffs for `staged` or `unstaged` uncommitted changes |
 | `GET /api/comments` | review comments doc (`--comments` file), or empty doc if unset |
-| `GET /api/stack?range` | cached change stack for the range's merge-base..head, or 404 |
-| `POST /api/stack` | SSE stream of change-stack groups; runs the Claude Code CLI |
+| `GET /api/story?range` | cached changeset story for the range's merge-base..head, or 404 |
+| `POST /api/story` | SSE stream of changeset-story groups; runs the Claude Code CLI |
 
 ## Env (dev / internal only)
 
@@ -203,4 +203,4 @@ dev server reads them directly:
 - No branch/tag picker, no file search
 - Comments anchored to a line/file not present in the current diff (incl. deleted files) appear in the "unattached comments" panel above the diff rather than inline
 - Uncommitted-changes view skips untracked files
-- Stack view covers branch review only (not single commits, ranges or uncommitted changes), and holds no comments — open the item in the classic diff to comment
+- Story view covers branch review only (not single commits, ranges or uncommitted changes), and holds no comments — open the item in the classic diff to comment

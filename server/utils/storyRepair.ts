@@ -1,8 +1,8 @@
-// Validation + repair for model-authored change-stack groups. Pure functions:
+// Validation + repair for model-authored changeset-story groups. Pure functions:
 // the model is never trusted for lengths, kinds, paths or hunk ids.
-import type { InputFile, InputHunk } from './stackInput'
-import type { RawStackGroup, StackGroup, StackHunk, StackItem, StackKind } from '../../app/types/stack'
-import { CAPS, EXCERPT_LINE_CAP, MAX_GROUPS, STACK_KINDS } from '../../app/types/stack'
+import type { InputFile, InputHunk } from './storyInput'
+import type { RawStoryGroup, StoryGroup, StoryHunk, StoryItem, StoryKind } from '../../app/types/story'
+import { CAPS, EXCERPT_LINE_CAP, MAX_GROUPS, STORY_KINDS } from '../../app/types/story'
 
 export interface RepairContext {
   files: InputFile[]
@@ -15,11 +15,11 @@ export function truncate(value: unknown, cap: number): string {
   return s.slice(0, Math.max(1, cap - 1)).trimEnd() + '…'
 }
 
-function toKind(value: unknown): StackKind {
-  return STACK_KINDS.includes(value as StackKind) ? (value as StackKind) : 'other'
+function toKind(value: unknown): StoryKind {
+  return STORY_KINDS.includes(value as StoryKind) ? (value as StoryKind) : 'other'
 }
 
-export function toExcerpt(h: InputHunk): StackHunk {
+export function toExcerpt(h: InputHunk): StoryHunk {
   const lines = h.lines.slice(0, EXCERPT_LINE_CAP)
   return {
     id: h.id,
@@ -32,19 +32,19 @@ export function toExcerpt(h: InputHunk): StackHunk {
 }
 
 /**
- * Coerce one model group into a `StackGroup`, dropping what doesn't resolve.
+ * Coerce one model group into a `StoryGroup`, dropping what doesn't resolve.
  * Returns null when nothing usable survives. `id` is assigned later.
  */
-export function normalizeGroup(raw: unknown, ctx: RepairContext): StackGroup | null {
-  const g = raw as RawStackGroup
+export function normalizeGroup(raw: unknown, ctx: RepairContext): StoryGroup | null {
+  const g = raw as RawStoryGroup
   if (!g || typeof g !== 'object') return null
   const known = new Set(ctx.files.map((f) => f.path))
-  const items: StackItem[] = []
+  const items: StoryItem[] = []
   const seenHunks = new Set<string>()
   for (const rawItem of Array.isArray(g.items) ? g.items : []) {
     const path = typeof rawItem?.path === 'string' ? rawItem.path.trim() : ''
     if (!path || !known.has(path)) continue
-    const hunks: StackHunk[] = []
+    const hunks: StoryHunk[] = []
     for (const id of Array.isArray(rawItem.hunks) ? rawItem.hunks : []) {
       if (typeof id !== 'string') continue
       const hunk = ctx.hunksById.get(id.trim())
@@ -84,7 +84,7 @@ export function normalizeGroup(raw: unknown, ctx: RepairContext): StackGroup | n
  * Append a group, honouring the group cap: everything past `MAX_GROUPS` is
  * folded into the last group rather than dropped.
  */
-export function appendGroup(groups: StackGroup[], group: StackGroup): 'added' | 'merged' {
+export function appendGroup(groups: StoryGroup[], group: StoryGroup): 'added' | 'merged' {
   if (groups.length < MAX_GROUPS) {
     groups.push(group)
     return 'added'
@@ -94,7 +94,7 @@ export function appendGroup(groups: StackGroup[], group: StackGroup): 'added' | 
   return 'merged'
 }
 
-function mergeItem(group: StackGroup, item: StackItem) {
+function mergeItem(group: StoryGroup, item: StoryItem) {
   const existing = group.items.find((i) => i.path === item.path)
   if (!existing) { group.items.push(item); return }
   const have = new Set(existing.hunks.map((h) => h.id))
@@ -105,9 +105,9 @@ function mergeItem(group: StackGroup, item: StackItem) {
 /**
  * Final pass: assign ids and make sure nothing in the diff went unmentioned.
  * Unreferenced hunks (and never-named patch-omitted files) land in a trailing
- * `Other` group so the stack always accounts for the whole branch.
+ * `Other` group so the story always accounts for the whole branch.
  */
-export function finalizeGroups(groups: StackGroup[], ctx: RepairContext): StackGroup[] {
+export function finalizeGroups(groups: StoryGroup[], ctx: RepairContext): StoryGroup[] {
   const referencedHunks = new Set<string>()
   const referencedPaths = new Set<string>()
   for (const g of groups) {
@@ -117,7 +117,7 @@ export function finalizeGroups(groups: StackGroup[], ctx: RepairContext): StackG
     }
   }
 
-  const leftovers = new Map<string, StackHunk[]>()
+  const leftovers = new Map<string, StoryHunk[]>()
   for (const [id, hunk] of ctx.hunksById) {
     if (referencedHunks.has(id)) continue
     const list = leftovers.get(hunk.path) ?? []
@@ -130,7 +130,7 @@ export function finalizeGroups(groups: StackGroup[], ctx: RepairContext): StackG
   }
 
   if (leftovers.size) {
-    const items: StackItem[] = [...leftovers.entries()]
+    const items: StoryItem[] = [...leftovers.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([path, hunks]) => ({
         path,

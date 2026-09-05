@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The Stack layout, read as a story: the left column is the model's narrative
+// The Story layout, read as a story: the left column is the model's narrative
 // (one card per group, scrolled top to bottom), the right column is the files
 // that group touches — collapsed to a peek of their diff, expanded on click.
 // `Esc` / `Diff` returns to the classic pane with review=1 intact.
@@ -16,7 +16,7 @@ const focusIndex = ref(0)
 const expanded = ref<Set<string>>(new Set())
 const elapsed = ref(0)
 
-const groups = computed(() => store.stack?.groups ?? [])
+const groups = computed(() => store.story?.groups ?? [])
 const fileCount = computed(() => {
   const set = new Set<string>()
   for (const g of groups.value) for (const i of g.items) set.add(i.path)
@@ -29,7 +29,7 @@ const activeGroup = computed(() =>
 const activeIndex = computed(() => groups.value.findIndex((g) => g.id === activeGroup.value?.id))
 const items = computed(() => activeGroup.value?.items ?? [])
 
-// The branch diff is already loaded for the classic pane; the stack reuses it
+// The branch diff is already loaded for the classic pane; the story reuses it
 // so every file renders as a real highlighted diff rather than raw patch text.
 const byPath = computed<Record<string, FileDiff>>(() => {
   const map: Record<string, FileDiff> = {}
@@ -94,7 +94,7 @@ function focusCard(next: number) {
 }
 
 function openInDiff(path: string, line?: number) {
-  store.openStackHunk(path, line)
+  store.openStoryHunk(path, line)
 }
 
 function onKey(e: KeyboardEvent) {
@@ -102,7 +102,7 @@ function onKey(e: KeyboardEvent) {
   if (e.metaKey || e.ctrlKey || e.altKey || helpOpen.value) return
   const focused = items.value[focusIndex.value]
   switch (e.key) {
-    case 'Escape': e.preventDefault(); store.closeStack(); break
+    case 'Escape': e.preventDefault(); store.closeStory(); break
     case ']': e.preventDefault(); stepGroup(1); break
     case '[': e.preventDefault(); stepGroup(-1); break
     case 'j': e.preventDefault(); focusCard(focusIndex.value + 1); break
@@ -118,12 +118,12 @@ watch(() => groups.value.length, () => {
 })
 
 let timer: ReturnType<typeof setInterval> | null = null
-watch(() => store.stackStatus, (status) => {
+watch(() => store.storyStatus, (status) => {
   if (timer) { clearInterval(timer); timer = null }
   if (status !== 'loading') return
   elapsed.value = 0
   timer = setInterval(() => {
-    elapsed.value = Math.round((Date.now() - store.stackStartedAt) / 1000)
+    elapsed.value = Math.round((Date.now() - store.storyStartedAt) / 1000)
   }, 1000)
 }, { immediate: true })
 
@@ -135,13 +135,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="stack">
+  <div class="story-view">
     <div class="head">
       <div class="head-line">
         <span class="crumb">
-          Stack · {{ store.range }} · {{ fileCount }} files · {{ groups.length }} groups
-          <span v-if="store.stack?.truncated" class="tag">partial</span>
-          <span v-if="store.stackStatus === 'loading'" class="tag live">
+          Story · {{ store.range }} · {{ fileCount }} files · {{ groups.length }} groups
+          <span v-if="store.story?.truncated" class="tag">partial</span>
+          <span v-if="store.storyStatus === 'loading'" class="tag live">
             grouping… {{ elapsed }}s
           </span>
         </span>
@@ -153,23 +153,23 @@ onUnmounted(() => {
             {{ store.diffWrap ? 'Wrap: on' : 'Wrap: off' }}
           </button>
           <button
-            :disabled="store.stackStatus === 'loading'"
-            title="Regenerate the stack"
-            @click="store.buildStack({ force: true })"
+            :disabled="store.storyStatus === 'loading'"
+            title="Regenerate the story"
+            @click="store.buildStory({ force: true })"
           >
             ↻ Regenerate
           </button>
-          <button title="Back to the classic diff (Esc)" @click="store.closeStack()">Diff</button>
+          <button title="Back to the classic diff (Esc)" @click="store.closeStory()">Diff</button>
         </div>
       </div>
-      <p v-if="store.stackError" class="stack-error">{{ store.stackError }}</p>
+      <p v-if="store.storyError" class="story-error">{{ store.storyError }}</p>
     </div>
 
     <div class="body">
       <div ref="storyEl" class="story">
-        <header v-if="store.stack?.title" class="story-head">
-          <h1>{{ store.stack.title }}</h1>
-          <p v-if="store.stack.summary">{{ store.stack.summary }}</p>
+        <header v-if="store.story?.title" class="story-head">
+          <h1>{{ store.story.title }}</h1>
+          <p v-if="store.story.summary">{{ store.story.summary }}</p>
         </header>
 
         <button
@@ -193,7 +193,7 @@ onUnmounted(() => {
           </div>
         </button>
 
-        <p v-if="store.stackStatus === 'loading'" class="pending">Grouping the rest…</p>
+        <p v-if="store.storyStatus === 'loading'" class="pending">Grouping the rest…</p>
       </div>
 
       <div class="files-pane">
@@ -221,7 +221,7 @@ onUnmounted(() => {
             :class="{ focused: i === focusIndex }"
             :data-card="it.path"
           >
-            <StackFileCard
+            <StoryFileCard
               :item="it"
               :file="byPath[it.path]"
               :expanded="isExpanded(it.path)"
@@ -238,7 +238,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.stack {
+.story-view {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -270,7 +270,7 @@ onUnmounted(() => {
 }
 .tag.live { color: var(--accent); }
 .head-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.stack-error { margin: 6px 0 0; font-size: 12px; color: var(--red); }
+.story-error { margin: 6px 0 0; font-size: 12px; color: var(--red); }
 
 .body {
   flex: 1;

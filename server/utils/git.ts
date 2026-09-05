@@ -82,7 +82,7 @@ export function parseNameStatus(raw: string): Array<{ path: string; status: stri
 
 /**
  * Split a multi-file `git diff` patch into per-file chunks keyed by new path.
- * Shared by the branch diff endpoint and the change-stack model input builder.
+ * Shared by the branch diff endpoint and the changeset-story model input builder.
  */
 export function splitPatchByFile(raw: string): Map<string, string> {
   const out = new Map<string, string>()

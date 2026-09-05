@@ -6,11 +6,11 @@ references:
   - "h3 1.15 `createEventStream()` available for SSE"
 ---
 
-# Change Stack — intent-grouped walkthrough of a feature branch
+# Changeset Story — intent-grouped walkthrough of a feature branch
 
 ## Goal
 
-One button switches branch review into a **Stack view**: the branch as an
+One button switches branch review into a **Story view**: the branch as an
 ordered list of change groups, each with a very short summary and the
 *relevant hunks only*. Reviewers skim the story first; the classic full diff
 is one click away and stays unchanged.
@@ -27,10 +27,10 @@ gv handles no API keys.
 - **Skimmable.** Hard length caps on every model string, enforced in the prompt
   and re-truncated server-side. No paragraphs anywhere.
 - **On demand only.** Nothing runs until the button is clicked. A reload shows a
-  stack only if a persisted result exists.
+  story only if a persisted result exists.
 - **Degrades to the classic UI.** Any failure ⇒ one-line notice, branch review
   untouched.
-- **Classic diff is the source of truth.** Stack view is a reading layer;
+- **Classic diff is the source of truth.** Story view is a reading layer;
   comments, widgets, side-by-side stay in the classic view.
 
 ---
@@ -38,24 +38,24 @@ gv handles no API keys.
 ## 1. UX
 
 ### Entry point
-Button **`Stack`** in the DiffView header (next to side-by-side / expand-all).
+Button **`Story`** in the DiffView header (next to side-by-side / expand-all).
 Visible only when `store.isReview && !store.focusPath`.
 
 States:
-- **idle** — `Stack`.
+- **idle** — `Story`.
 - **loading** — `Grouping 23 files…` + elapsed seconds; click = cancel. Groups
   appear progressively (§3.4) so the view opens as soon as the header arrives.
-- **ready** — Stack view is open. Its header has `Diff` (back to classic) and
-  `↻ Regenerate`. Coming back via `Stack` button re-opens without re-running.
+- **ready** — Story view is open. Its header has `Diff` (back to classic) and
+  `↻ Regenerate`. Coming back via `Story` button re-opens without re-running.
 - **error** — one-line red notice under the classic header, auto-hide 8 s.
 
-### Stack view = its own layout
+### Story view = its own layout
 Replaces the whole classic 3-pane grid. Left commit pane is hidden to give the
 content room (`Esc` or `Diff` returns; the URL keeps `review=1` so state is
 preserved).
 
 ```
-┌ Stack · main..HEAD · 23 files · 6 groups            [↻] [Diff] ┐
+┌ Story · main..HEAD · 23 files · 6 groups            [↻] [Diff] ┐
 │ Add comment authoring with plain-text output                   │  title ≤ 60
 │ Drafts live in the store; Finish prints them as text.          │  summary ≤ 120
 ├───────────────┬────────────────────────────────────────────────┤
@@ -88,7 +88,7 @@ Excerpt rendering: own lightweight component (`HunkExcerpt.vue`), unified only,
 here — it needs full file contents and split-mode plumbing we don't want in the
 skim view.
 
-Clicking a file path or `open in diff ↗` ⇒ leave Stack view, classic review with
+Clicking a file path or `open in diff ↗` ⇒ leave Story view, classic review with
 `selectFile(path)` + `pendingScrollLine = { path, line: hunk.newStart, side:'new' }`
 (existing scroll+flash watcher).
 
@@ -96,7 +96,7 @@ Outline (left column): group number, title, item count; current group
 highlighted by scroll spy (IntersectionObserver on group headers). Click ⇒
 scroll document to group.
 
-### Keys (Stack view only)
+### Keys (Story view only)
 - `j` / `k` — next / previous **item** (scroll into view, subtle highlight).
 - `]` / `[` — next / previous **group**.
 - `Enter` — open focused item in classic diff.
@@ -108,10 +108,10 @@ scroll document to group.
 ## 2. Data model
 
 ```ts
-// app/types/stack.ts
-export type StackKind = 'feat' | 'fix' | 'refactor' | 'test' | 'docs' | 'config' | 'chore' | 'other'
+// app/types/story.ts
+export type StoryKind = 'feat' | 'fix' | 'refactor' | 'test' | 'docs' | 'config' | 'chore' | 'other'
 
-export interface StackHunk {
+export interface StoryHunk {
   id: string           // "app/x.ts#2" — path + 1-based hunk index in the branch patch
   newStart: number     // from @@ header
   oldStart: number
@@ -119,22 +119,22 @@ export interface StackHunk {
   lines: string[]      // raw patch lines (' ', '+', '-' prefixed), capped server-side
   truncatedLines: number // lines dropped by the cap, 0 if none
 }
-export interface StackItem {
+export interface StoryItem {
   path: string
   note: string         // ≤ 40 chars
-  hunks: StackHunk[]   // resolved server-side; [] for binary / excluded files
+  hunks: StoryHunk[]   // resolved server-side; [] for binary / excluded files
 }
-export interface StackGroup {
+export interface StoryGroup {
   id: string           // "g1".."gN"
   title: string        // ≤ 40
   summary: string      // ≤ 90
-  kind: StackKind
-  items: StackItem[]
+  kind: StoryKind
+  items: StoryItem[]
 }
-export interface ChangeStack {
+export interface ChangesetStory {
   base: string; head: string; headSha: string; mergeBase: string
   title: string; summary: string
-  groups: StackGroup[]
+  groups: StoryGroup[]
   model: string; durationMs: number; createdAt: string
   truncated: boolean   // model input was cut (§3.3)
 }
@@ -142,50 +142,50 @@ export interface ChangeStack {
 
 Store (`app/stores/viewer.ts`):
 ```ts
-stack: ChangeStack | null
-stackStatus: 'idle' | 'loading' | 'ready' | 'error'
-stackError: string
-stackView: boolean                     // Stack layout open
-stackActive (getter) = isReview && !focusPath && stackView && stack !== null
-async buildStack({ force = false } = {})   // opens SSE, fills stack progressively
-cancelStack()
-openStack() / closeStack()             // toggle view; openStack() with no stack ⇒ buildStack()
-async loadPersistedStack()             // GET /api/stack?range= ; used by init when ?stack=1
+story: ChangesetStory | null
+storyStatus: 'idle' | 'loading' | 'ready' | 'error'
+storyError: string
+storyView: boolean                     // Story layout open
+storyActive (getter) = isReview && !focusPath && storyView && story !== null
+async buildStory({ force = false } = {})   // opens SSE, fills story progressively
+cancelStory()
+openStory() / closeStory()             // toggle view; openStory() with no story ⇒ buildStory()
+async loadPersistedStory()             // GET /api/story?range= ; used by init when ?story=1
 ```
-Invalidation: `stack.headSha !== context.head` after commits/refresh ⇒ drop the
-in-memory stack (the persisted file for the old sha stays on disk).
+Invalidation: `story.headSha !== context.head` after commits/refresh ⇒ drop the
+in-memory story (the persisted file for the old sha stays on disk).
 
 ---
 
 ## 3. Server
 
 ### 3.1 Endpoints
-- `GET /api/stack?range=` → persisted `ChangeStack` for the current
+- `GET /api/story?range=` → persisted `ChangesetStory` for the current
   `mergeBase..headSha`, or `404`. Never triggers generation.
-- `POST /api/stack` body `{ range, force? }` → **SSE** stream (`createEventStream`):
+- `POST /api/story` body `{ range, force? }` → **SSE** stream (`createEventStream`):
   - `event: meta` `{ base, head, headSha, mergeBase, files, truncated }`
   - `event: header` `{ title, summary }`
-  - `event: group` `StackGroup` (fully resolved, hunks included) — one per group as it parses
-  - `event: done` `ChangeStack` (final, repaired, persisted)
+  - `event: group` `StoryGroup` (fully resolved, hunks included) — one per group as it parses
+  - `event: done` `ChangesetStory` (final, repaired, persisted)
   - `event: error` `{ message }`
   Client disconnect ⇒ `child.kill('SIGTERM')`.
   Existing origin middleware covers both routes.
 
 ### 3.2 Persistence
-`<git-dir>/gv/stack/<mergeBase>-<headSha>.json` (`git rev-parse --git-dir`,
+`<git-dir>/gv/story/<mergeBase>-<headSha>.json` (`git rev-parse --git-dir`,
 so worktrees resolve correctly; nothing gets committed). Written on `done`,
-overwritten by `force`. In-memory `LRU<ChangeStack>(20)` in front of it.
+overwritten by `force`. In-memory `LRU<ChangesetStory>(20)` in front of it.
 Corrupt file ⇒ treated as missing.
 
 ### 3.3 Model input
 Plain text on **stdin**:
 ```
-REPO: git-history-viewer   BRANCH: feat/stack   RANGE: main...HEAD
+REPO: git-history-viewer   BRANCH: feat/story   RANGE: main...HEAD
 COMMITS (oldest first, max 50):
 - 5d54fd1 fix(diff): land file-tree jumps on the right scroll position
 FILES (23):
 M app/stores/viewer.ts (3 hunks)
-A app/components/ChangeStack.vue (1 hunk)
+A app/components/ChangesetStory.vue (1 hunk)
 M pnpm-lock.yaml (patch omitted)
 
 === app/stores/viewer.ts ===
@@ -229,7 +229,7 @@ Output format is **NDJSON, one object per line**, not `--json-schema`
 ```
 Server concatenates `text_delta` chunks, splits on `\n`, `JSON.parse`s each
 complete line (skips blank / non-JSON lines, tolerates a ```` ```json ```` fence),
-validates, resolves hunk ids → `StackHunk` excerpts, emits `group` immediately.
+validates, resolves hunk ids → `StoryHunk` excerpts, emits `group` immediately.
 The final `result` message is used only for `is_error` / stderr text.
 
 ### 3.5 Validation + repair (per group on arrival, plus once at `end`)
@@ -246,7 +246,7 @@ The final `result` message is used only for `is_error` / stderr text.
 
 ### 3.6 System prompt (draft, tune on 3 real branches before UI polish)
 ```
-You turn a git branch diff into an ordered "change stack" for a reviewer who
+You turn a git branch diff into an ordered "changeset story" for a reviewer who
 will only skim. Output NDJSON: one JSON object per line, nothing else — no
 markdown, no commentary.
 
@@ -274,42 +274,42 @@ Rules:
 
 ## 4. Client wiring
 
-- `store.buildStack()`: `fetch('/api/stack', { method:'POST', body, signal })`
+- `store.buildStory()`: `fetch('/api/story', { method:'POST', body, signal })`
   + manual SSE parse of the response body (EventSource can't POST). On `header`
-  set `stack` skeleton + `stackView = true`; append on `group`; replace on
+  set `story` skeleton + `storyView = true`; append on `group`; replace on
   `done`; `error` ⇒ status error + close view if still empty.
-- `store.init()`: if `?stack=1 && canReview` ⇒ `loadPersistedStack()`, open only
+- `store.init()`: if `?story=1 && canReview` ⇒ `loadPersistedStory()`, open only
   on `200`. Never generate on load.
-- `app/pages/index.vue`: `<StackView v-if="store.stackActive" />` else the
-  classic grid. Key handler branches on `stackActive`.
-- `StackView.vue` (new) — header, outline, document; scroll spy; keys.
-- `StackGroup.vue`, `HunkExcerpt.vue` (new) — presentational.
-- `DiffView.vue` — `Stack` button + states + error notice.
+- `app/pages/index.vue`: `<StoryView v-if="store.storyActive" />` else the
+  classic grid. Key handler branches on `storyActive`.
+- `StoryView.vue` (new) — header, outline, document; scroll spy; keys.
+- `StoryGroup.vue`, `HunkExcerpt.vue` (new) — presentational.
+- `DiffView.vue` — `Story` button + states + error notice.
 - `HotkeyHelp.vue` — new rows.
 
 ---
 
 ## 5. Files touched
 
-- `server/api/stack.post.ts` (new) — SSE, spawn, NDJSON parse, repair, persist.
-- `server/api/stack.get.ts` (new) — persisted lookup.
-- `server/utils/stackInput.ts` (new) — hunk splitting/numbering, exclusions, budget.
-- `server/utils/stackRepair.ts` (new) — validation/repair, pure + unit-testable.
-- `server/utils/stackStore.ts` (new) — `<git-dir>/gv/stack/*.json` read/write + LRU.
-- `app/types/stack.ts` (new).
-- `app/stores/viewer.ts` — stack state/actions, invalidation, `?stack=1`.
-- `app/components/StackView.vue`, `StackGroup.vue`, `HunkExcerpt.vue` (new).
+- `server/api/story.post.ts` (new) — SSE, spawn, NDJSON parse, repair, persist.
+- `server/api/story.get.ts` (new) — persisted lookup.
+- `server/utils/storyInput.ts` (new) — hunk splitting/numbering, exclusions, budget.
+- `server/utils/storyRepair.ts` (new) — validation/repair, pure + unit-testable.
+- `server/utils/storyStore.ts` (new) — `<git-dir>/gv/story/*.json` read/write + LRU.
+- `app/types/story.ts` (new).
+- `app/stores/viewer.ts` — story state/actions, invalidation, `?story=1`.
+- `app/components/StoryView.vue`, `StoryGroup.vue`, `HunkExcerpt.vue` (new).
 - `app/components/DiffView.vue` — button, notice.
 - `app/pages/index.vue` — layout switch, keys.
 - `app/components/HotkeyHelp.vue`.
-- `README.md` — Stack section: needs Claude Code installed and logged in; what
+- `README.md` — Story section: needs Claude Code installed and logged in; what
   is sent (diff + commit subjects); where results are cached.
 
 ## 6. Out of scope (MVP)
 
 - Non-branch selections (single commit, ranges, staged/unstaged).
 - Layers inside groups, diagrams, per-line AI notes.
-- Comments/widgets inside Stack view (open in diff instead).
+- Comments/widgets inside Story view (open in diff instead).
 - Model selection UI or env override.
 - Cost ceiling.
 - Editing/reordering groups by hand.
@@ -329,9 +329,9 @@ Rules:
 
 - Branch review only.
 - Files duplicated per group, showing only that group's hunks.
-- Stack view is its own layout focused on groups/summaries; classic diff untouched and one click away.
+- Story view is its own layout focused on groups/summaries; classic diff untouched and one click away.
 - `sonnet` hard-coded.
-- Persist to `<git-dir>/gv/stack/`.
+- Persist to `<git-dir>/gv/story/`.
 - Generation only on demand; reload reuses persisted result only.
 - Progressive rendering via NDJSON over stream-json → SSE.
 - No cost ceiling.

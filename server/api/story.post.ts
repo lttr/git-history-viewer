@@ -1,14 +1,14 @@
-// Generates a change stack by piping the branch diff into the local Claude Code
+// Generates a changeset story by piping the branch diff into the local Claude Code
 // CLI and streaming groups back over SSE as they parse. Everything the model
-// says is re-validated (server/utils/stackRepair.ts) before it reaches the UI.
+// says is re-validated (server/utils/storyRepair.ts) before it reaches the UI.
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import type { ChangeStack, StackGroup } from '../../app/types/stack'
-import { CAPS } from '../../app/types/stack'
-import { collectStackSource } from '../utils/stackInput'
-import { STACK_SYSTEM_PROMPT } from '../utils/stackPrompt'
-import { appendGroup, finalizeGroups, normalizeGroup, truncate } from '../utils/stackRepair'
-import { readStack, stackKey, writeStack } from '../utils/stackStore'
+import type { ChangesetStory, StoryGroup } from '../../app/types/story'
+import { CAPS } from '../../app/types/story'
+import { collectStorySource } from '../utils/storyInput'
+import { STORY_SYSTEM_PROMPT } from '../utils/storyPrompt'
+import { appendGroup, finalizeGroups, normalizeGroup, truncate } from '../utils/storyRepair'
+import { readStory, storyKey, writeStory } from '../utils/storyStore'
 
 const MODEL = 'sonnet'
 const TIMEOUT_MS = 180_000
@@ -18,9 +18,9 @@ export default defineEventHandler(async (event) => {
   const range = typeof body?.range === 'string' ? body.range.trim() : ''
   const force = !!body?.force
 
-  const source = await collectStackSource(range)
+  const source = await collectStorySource(range)
   const { base, head, headSha, mergeBase, input } = source
-  const key = stackKey(mergeBase, headSha)
+  const key = storyKey(mergeBase, headSha)
 
   const stream = createEventStream(event)
   const send = (name: string, data: unknown) =>
@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
   const enqueue = (fn: () => Promise<void> | void) => { queue = queue.then(fn, () => {}) }
 
   // Replay a persisted result instead of paying for the model again.
-  const cached = force ? null : await readStack(key)
+  const cached = force ? null : await readStory(key)
   if (cached) {
     enqueue(() => send('meta', {
       base, head, headSha, mergeBase,
@@ -57,7 +57,7 @@ export default defineEventHandler(async (event) => {
     '--output-format', 'stream-json',
     '--include-partial-messages',
     '--verbose',
-    '--system-prompt', STACK_SYSTEM_PROMPT,
+    '--system-prompt', STORY_SYSTEM_PROMPT,
   ], { cwd: tmpdir(), stdio: ['pipe', 'pipe', 'pipe'] })
 
   let settled = false
@@ -82,7 +82,7 @@ export default defineEventHandler(async (event) => {
   })
 
   const ctx = { files: input.files, hunksById: input.hunksById }
-  const groups: StackGroup[] = []
+  const groups: StoryGroup[] = []
   let title = ''
   let summary = ''
   let stderrText = ''
@@ -94,8 +94,8 @@ export default defineEventHandler(async (event) => {
     try { obj = JSON.parse(trimmed) } catch { return }
     if (!obj || typeof obj !== 'object') return
     if (obj.type === 'header') {
-      title = truncate(obj.title, CAPS.stackTitle)
-      summary = truncate(obj.summary, CAPS.stackSummary)
+      title = truncate(obj.title, CAPS.storyTitle)
+      summary = truncate(obj.summary, CAPS.storySummary)
       enqueue(() => send('header', { title, summary }))
       return
     }
@@ -157,7 +157,7 @@ export default defineEventHandler(async (event) => {
 
   child.on('error', (e: any) => {
     fail(e?.code === 'ENOENT'
-      ? 'Claude Code CLI not found — install it and log in to use Stack'
+      ? 'Claude Code CLI not found — install it and log in to use Story'
       : `Failed to run Claude Code: ${e?.message || e}`)
   })
 
@@ -173,7 +173,7 @@ export default defineEventHandler(async (event) => {
         return
       }
       finalizeGroups(groups, ctx)
-      const stack: ChangeStack = {
+      const story: ChangesetStory = {
         base, head, headSha, mergeBase,
         title: title || `${base}..${head}`,
         summary,
@@ -183,8 +183,8 @@ export default defineEventHandler(async (event) => {
         createdAt: new Date().toISOString(),
         truncated: input.truncated,
       }
-      await writeStack(key, stack)
-      finish(() => send('done', stack))
+      await writeStory(key, story)
+      finish(() => send('done', story))
     })
   })
 

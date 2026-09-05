@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { nextTick } from 'vue'
 import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor, CommentSide, ThreadSource } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
-import type { ChangeStack, StackGroup } from '~/types/stack'
+import type { ChangesetStory, StoryGroup } from '~/types/story'
 
 // Line numbers present in a unified-diff patch, per side. Used to detect
 // inline comments anchored to a line that isn't in the diff being viewed.
@@ -34,8 +34,8 @@ function scopeKey(s: Pick<ThreadSource, 'sha' | 'shas' | 'changes' | 'review'>):
 }
 
 let selectFetchId = 0
-// Only one stack build can be in flight; a new one cancels the old.
-let stackAbort: AbortController | null = null
+// Only one story build can be in flight; a new one cancels the old.
+let storyAbort: AbortController | null = null
 
 /**
  * Minimal SSE reader for a POST response (EventSource is GET-only).
@@ -141,11 +141,11 @@ interface UrlState {
   focus: string
   changes: ChangesKind | ''
   review: boolean
-  stack: boolean
+  story: boolean
 }
 
 function readUrl(): UrlState {
-  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '', review: false, stack: false }
+  if (typeof window === 'undefined') return { repo: '', range: '', shas: [], file: '', focus: '', changes: '', review: false, story: false }
   const p = new URLSearchParams(window.location.search)
   const shaRaw = p.get('sha') ?? ''
   const shas = shaRaw.split(',').map((s) => s.trim()).filter(Boolean)
@@ -159,7 +159,7 @@ function readUrl(): UrlState {
     focus: p.get('focus') ?? '',
     changes,
     review: p.get('review') === '1',
-    stack: p.get('stack') === '1',
+    story: p.get('story') === '1',
   }
 }
 
@@ -180,7 +180,7 @@ function writeUrl(patch: Partial<UrlState>, mode: 'replace' | 'push' = 'replace'
   }
   if (patch.changes !== undefined) setOrDel('changes', patch.changes)
   if (patch.review !== undefined) setOrDel('review', patch.review ? '1' : '')
-  if (patch.stack !== undefined) setOrDel('stack', patch.stack ? '1' : '')
+  if (patch.story !== undefined) setOrDel('story', patch.story ? '1' : '')
   if (patch.file !== undefined) setOrDel('file', patch.file)
   if (patch.focus !== undefined) setOrDel('focus', patch.focus)
   url.hash = ''
@@ -246,13 +246,13 @@ export const useViewerStore = defineStore('viewer', {
     overviewTab: 'commits' as 'commits' | 'comments',
     // Set by navigateToComment; DiffView watches it to scroll to + flash a line.
     pendingScrollLine: null as { path: string; line: number; side: CommentSide } | null,
-    // --- change stack (intent-grouped branch walkthrough) ---
-    stack: null as ChangeStack | null,
-    stackStatus: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
-    stackError: '' as string,
-    stackView: false,
-    stackFiles: 0,
-    stackStartedAt: 0,
+    // --- changeset story (intent-grouped branch walkthrough) ---
+    story: null as ChangesetStory | null,
+    storyStatus: 'idle' as 'idle' | 'loading' | 'ready' | 'error',
+    storyError: '' as string,
+    storyView: false,
+    storyFiles: 0,
+    storyStartedAt: 0,
   }),
   getters: {
     commentIndex(): CommentIndex {
@@ -348,10 +348,10 @@ export const useViewerStore = defineStore('viewer', {
     canReview(): boolean {
       return /\.\.\.?/.test(this.range)
     },
-    // Stack view only replaces the layout once there is something to show; a
+    // Story view only replaces the layout once there is something to show; a
     // failed or pending build leaves the classic review untouched.
-    stackActive(): boolean {
-      return this.isReview && !this.focusPath && this.stackView && this.stack !== null
+    storyActive(): boolean {
+      return this.isReview && !this.focusPath && this.storyView && this.story !== null
     },
     selectedCommits(): Commit[] {
       const set = new Set(this.selectedShas)
@@ -398,10 +398,10 @@ export const useViewerStore = defineStore('viewer', {
       } else if (this.commits[0]) {
         await this.selectCommit(this.commits[0].hash)
       }
-      if (urlState.stack && this.isReview) {
-        // Reload never regenerates: the stack opens only if one is on disk.
-        if (await this.loadPersistedStack()) this.stackView = true
-        else writeUrl({ stack: false })
+      if (urlState.story && this.isReview) {
+        // Reload never regenerates: the story opens only if one is on disk.
+        if (await this.loadPersistedStory()) this.storyView = true
+        else writeUrl({ story: false })
       }
       this.initialSnapshot = {
         range: this.range,
@@ -433,10 +433,10 @@ export const useViewerStore = defineStore('viewer', {
       this.selectedFile = ''
       this.selectedChanges = ''
       this.selectedReview = false
-      this.cancelStack()
-      this.stack = null
-      this.stackStatus = 'idle'
-      this.stackView = false
+      this.cancelStory()
+      this.story = null
+      this.storyStatus = 'idle'
+      this.storyView = false
       commitCache.clear()
       writeUrl(
         { range: snap.range, focus: snap.focus, shas: [], changes: '', review: false, file: '' },
@@ -520,7 +520,7 @@ export const useViewerStore = defineStore('viewer', {
     async refreshContext() {
       try {
         this.context = await $fetch<RepoContext>('/api/context')
-        this.invalidateStaleStack()
+        this.invalidateStaleStory()
       } catch {}
     },
     async reloadCommits() {
@@ -551,7 +551,7 @@ export const useViewerStore = defineStore('viewer', {
     async selectChanges(kind: ChangesKind, preferFile = '') {
       this.selectedChanges = kind
       this.selectedReview = false
-      this.closeStack()
+      this.closeStory()
       this.selectedSha = ''
       this.selectedShas = []
       this.lastPivotSha = ''
@@ -640,7 +640,7 @@ export const useViewerStore = defineStore('viewer', {
     async selectCommit(sha: string, preferFile = '') {
       this.selectedChanges = ''
       this.selectedReview = false
-      this.closeStack()
+      this.closeStory()
       this.selectedSha = sha
       this.selectedShas = [sha]
       this.lastPivotSha = sha
@@ -693,7 +693,7 @@ export const useViewerStore = defineStore('viewer', {
       }
       this.selectedChanges = ''
       this.selectedReview = false
-      this.closeStack()
+      this.closeStory()
       this.selectedShas = unique
       this.selectedSha = unique[0]
       if (!this.lastPivotSha || !unique.includes(this.lastPivotSha)) {
@@ -846,27 +846,27 @@ export const useViewerStore = defineStore('viewer', {
       this.commentsDoc.threads = this.commentsDoc.threads.filter((t) => t.id !== id)
     },
 
-    // --- change stack ---
-    // Runs the local Claude Code CLI through the server and fills `stack` as
+    // --- changeset story ---
+    // Runs the local Claude Code CLI through the server and fills `story` as
     // groups arrive, so the view opens long before the model is done.
-    async buildStack(opts: { force?: boolean } = {}) {
+    async buildStory(opts: { force?: boolean } = {}) {
       if (!this.canReview) return
-      this.cancelStack()
+      this.cancelStory()
       const controller = new AbortController()
-      stackAbort = controller
-      this.stackStatus = 'loading'
-      this.stackError = ''
-      this.stackStartedAt = Date.now()
-      if (opts.force) this.stack = null
+      storyAbort = controller
+      this.storyStatus = 'loading'
+      this.storyError = ''
+      this.storyStartedAt = Date.now()
+      if (opts.force) this.story = null
       try {
-        const res = await fetch('/api/stack', {
+        const res = await fetch('/api/story', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ range: this.range, force: !!opts.force }),
           signal: controller.signal,
         })
         if (!res.ok || !res.body) {
-          let message = `Stack request failed (${res.status})`
+          let message = `Story request failed (${res.status})`
           try {
             const body = await res.json()
             if (body?.message) message = body.message
@@ -877,87 +877,87 @@ export const useViewerStore = defineStore('viewer', {
           let payload: any
           try { payload = JSON.parse(frame.data) } catch { continue }
           if (frame.event === 'meta') {
-            this.stackFiles = payload.files ?? 0
+            this.storyFiles = payload.files ?? 0
           } else if (frame.event === 'header') {
-            this.stack = {
+            this.story = {
               base: this.range, head: '', headSha: '', mergeBase: '',
               title: payload.title ?? '', summary: payload.summary ?? '',
               groups: [], model: '', durationMs: 0, createdAt: '', truncated: false,
             }
-            this.openStackView()
+            this.openStoryView()
           } else if (frame.event === 'group') {
-            if (!this.stack) continue
-            this.stack.groups = [...this.stack.groups, payload as StackGroup]
+            if (!this.story) continue
+            this.story.groups = [...this.story.groups, payload as StoryGroup]
           } else if (frame.event === 'done') {
-            this.stack = payload as ChangeStack
-            this.stackStatus = 'ready'
-            this.openStackView()
+            this.story = payload as ChangesetStory
+            this.storyStatus = 'ready'
+            this.openStoryView()
           } else if (frame.event === 'error') {
             throw new Error(payload?.message || 'Grouping failed')
           }
         }
-        if (this.stackStatus === 'loading') {
+        if (this.storyStatus === 'loading') {
           // Stream ended without a `done` frame.
-          if (this.stack?.groups.length) this.stackStatus = 'ready'
+          if (this.story?.groups.length) this.storyStatus = 'ready'
           else throw new Error('Grouping ended without a result')
         }
       } catch (e: any) {
         if (e?.name === 'AbortError') return
-        this.stackStatus = 'error'
-        this.stackError = e?.message || 'Grouping failed'
-        if (!this.stack?.groups.length) {
-          this.stack = null
-          this.closeStack()
+        this.storyStatus = 'error'
+        this.storyError = e?.message || 'Grouping failed'
+        if (!this.story?.groups.length) {
+          this.story = null
+          this.closeStory()
         }
       } finally {
-        if (stackAbort === controller) stackAbort = null
+        if (storyAbort === controller) storyAbort = null
       }
     },
-    cancelStack() {
-      if (!stackAbort) return
-      stackAbort.abort()
-      stackAbort = null
-      if (this.stackStatus === 'loading') this.stackStatus = this.stack ? 'ready' : 'idle'
+    cancelStory() {
+      if (!storyAbort) return
+      storyAbort.abort()
+      storyAbort = null
+      if (this.storyStatus === 'loading') this.storyStatus = this.story ? 'ready' : 'idle'
     },
-    openStackView() {
-      if (this.stackView) return
-      this.stackView = true
-      writeUrl({ stack: true })
+    openStoryView() {
+      if (this.storyView) return
+      this.storyView = true
+      writeUrl({ story: true })
     },
-    // The Stack button: reuse what's already grouped, otherwise generate.
-    openStack() {
-      if (this.stackStatus === 'loading') { this.cancelStack(); return }
-      if (this.stack) { this.openStackView(); return }
-      this.buildStack()
+    // The Story button: reuse what's already grouped, otherwise generate.
+    openStory() {
+      if (this.storyStatus === 'loading') { this.cancelStory(); return }
+      if (this.story) { this.openStoryView(); return }
+      this.buildStory()
     },
-    closeStack() {
-      this.stackView = false
-      writeUrl({ stack: false })
+    closeStory() {
+      this.storyView = false
+      writeUrl({ story: false })
     },
-    async loadPersistedStack(): Promise<boolean> {
+    async loadPersistedStory(): Promise<boolean> {
       if (!this.canReview) return false
       try {
-        this.stack = await $fetch<ChangeStack>('/api/stack', { query: { range: this.range } })
-        this.stackStatus = 'ready'
+        this.story = await $fetch<ChangesetStory>('/api/story', { query: { range: this.range } })
+        this.storyStatus = 'ready'
         return true
       } catch {
-        this.stack = null
-        this.stackStatus = 'idle'
+        this.story = null
+        this.storyStatus = 'idle'
         return false
       }
     },
-    // A stack describes one exact head commit; anything newer invalidates it.
+    // A story describes one exact head commit; anything newer invalidates it.
     // The persisted file for the old sha stays on disk.
-    invalidateStaleStack() {
+    invalidateStaleStory() {
       const head = this.context?.head
-      if (!head || !this.stack || this.stack.headSha === head) return
-      this.stack = null
-      this.stackStatus = 'idle'
-      this.closeStack()
+      if (!head || !this.story || this.story.headSha === head) return
+      this.story = null
+      this.storyStatus = 'idle'
+      this.closeStory()
     },
-    // Leave the stack and land on the referenced hunk in the classic diff.
-    openStackHunk(path: string, line?: number) {
-      this.closeStack()
+    // Leave the story and land on the referenced hunk in the classic diff.
+    openStoryHunk(path: string, line?: number) {
+      this.closeStory()
       this.selectFile(path)
       if (line != null) this.pendingScrollLine = { path, line, side: 'new' }
     },

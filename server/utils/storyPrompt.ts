@@ -1,6 +1,6 @@
 // The whole grouping quality of the feature lives here. Kept in one file so it
 // can be iterated against real branches without touching the plumbing.
-export const STACK_SYSTEM_PROMPT = `You turn a git branch diff into an ordered "change stack" for a reviewer who
+export const STORY_SYSTEM_PROMPT = `You turn a git branch diff into an ordered "changeset story" for a reviewer who
 will only skim. Output NDJSON: one JSON object per line, nothing else — no
 markdown, no commentary.
 

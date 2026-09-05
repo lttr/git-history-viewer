@@ -1,17 +1,17 @@
 <script setup lang="ts">
-// One file inside a stack group: collapsed to a peek of its diff, expanded to
+// One file inside a story group: collapsed to a peek of its diff, expanded to
 // the full patch. Rendering goes through @git-diff-view (same component as the
-// classic pane) so the stack gets real syntax highlighting; the plain
+// classic pane) so the story gets real syntax highlighting; the plain
 // HunkExcerpt is only the fallback when the branch diff has no entry for the
-// path (binary, or a stack loaded without its diff).
+// path (binary, or a story loaded without its diff).
 import { computed } from 'vue'
 import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
 import '@git-diff-view/vue/styles/diff-view.css'
-import type { StackItem } from '~/types/stack'
+import type { StoryItem } from '~/types/story'
 import type { FileDiff } from '~/stores/viewer'
 
 const props = defineProps<{
-  item: StackItem
+  item: StoryItem
   file?: FileDiff
   expanded: boolean
   wrap: boolean
