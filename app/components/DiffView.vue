@@ -362,6 +362,40 @@ function showNavMiss(path: string, line: number) {
   navNoticeTimer = setTimeout(() => { navNotice.value = '' }, 5000)
 }
 
+// --- changeset story entry point ---
+const storyElapsed = ref(0)
+let storyTimer: ReturnType<typeof setInterval> | null = null
+watch(() => store.storyStatus, (status) => {
+  if (storyTimer) { clearInterval(storyTimer); storyTimer = null }
+  if (status !== 'loading') return
+  storyElapsed.value = 0
+  storyTimer = setInterval(() => {
+    storyElapsed.value = Math.round((Date.now() - store.storyStartedAt) / 1000)
+  }, 1000)
+})
+onUnmounted(() => { if (storyTimer) clearInterval(storyTimer) })
+
+const storyLabel = computed(() => {
+  if (store.storyStatus !== 'loading') return 'Story'
+  const files = store.storyFiles || store.diffs?.files.length || 0
+  return `Grouping ${files} files… ${storyElapsed.value}s`
+})
+const storyTitle = computed(() => {
+  if (store.storyStatus === 'loading') return 'Click to cancel grouping'
+  if (store.story) return 'Open the intent-grouped story view'
+  return 'Group this branch by intent (runs the local Claude Code CLI)'
+})
+
+// One-line, self-hiding: a failed grouping must not disturb the classic review.
+const storyNotice = ref('')
+let storyNoticeTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => store.storyError, (message) => {
+  if (storyNoticeTimer) clearTimeout(storyNoticeTimer)
+  storyNotice.value = message
+  if (!message) return
+  storyNoticeTimer = setTimeout(() => { storyNotice.value = '' }, 8000)
+})
+
 watch(
   () => store.pendingScrollLine,
   (p) => {
@@ -406,6 +440,15 @@ watch(
       </span>
       <div class="header-actions">
         <button
+          v-if="store.isReview && !store.focusPath"
+          class="story-btn"
+          :class="{ busy: store.storyStatus === 'loading' }"
+          :title="storyTitle"
+          @click="store.openStory()"
+        >
+          {{ storyLabel }}
+        </button>
+        <button
           v-if="store.collect && !store.submitted"
           class="finish-btn"
           :title="store.draftThreads.length ? 'Send comments to the agent and exit' : 'Add at least one comment first'"
@@ -433,6 +476,7 @@ watch(
       </div>
     </div>
     <div v-if="navNotice" class="nav-notice">{{ navNotice }}</div>
+    <div v-if="storyNotice" class="story-notice">{{ storyNotice }}</div>
     <div ref="scrollEl" class="body">
       <div v-if="!store.diffs" class="state">
         {{ store.diffsLoading ? 'Loading…' : 'Select a commit' }}
@@ -1067,6 +1111,14 @@ watch(
 .ct-widget { padding: 2px 0; }
 
 /* collect (authoring) mode */
+.story-btn.busy { color: var(--accent); }
+.story-notice {
+  padding: 6px 12px;
+  background: #2b1d20;
+  border-bottom: 1px solid var(--border);
+  color: var(--red);
+  font-size: 12px;
+}
 .finish-btn {
   background: #2f81f7;
   color: #fff;
