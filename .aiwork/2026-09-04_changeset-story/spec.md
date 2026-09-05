@@ -1,6 +1,5 @@
 ---
 references:
-  - "Inspiration: https://www.coderabbit.ai/blog/introducing-change-stack-the-first-ai-native-code-review-interface"
   - "Builds on: branch review (store.selectBranchReview, server/api/diff-branch.get.ts, DiffView.vue pendingScrollLine)"
   - "Verified locally: claude 2.1.260 — `-p --output-format stream-json --include-partial-messages` emits `stream_event` / `text_delta`; `--tools \"\"`, `--setting-sources`, `--no-session-persistence` exist. A user SessionStart hook fired under -p ⇒ `--setting-sources \"\"` is required."
   - "h3 1.15 `createEventStream()` available for SSE"
@@ -14,10 +13,6 @@ One button switches branch review into a **Story view**: the branch as an
 ordered list of change groups, each with a very short summary and the
 *relevant hunks only*. Reviewers skim the story first; the classic full diff
 is one click away and stays unchanged.
-
-CodeRabbit's framing (orientation only): "change cohorts" split into "ordered
-layers that reflect the natural reading order of the change", navigation "by
-intent instead of the raw file order".
 
 Grouping is produced by the **local Claude Code CLI, model `sonnet`, hard-coded**.
 gv handles no API keys.
