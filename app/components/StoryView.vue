@@ -7,6 +7,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useViewerStore } from '~/stores/viewer'
 import { helpOpen } from '~/stores/ui'
 import type { FileDiff } from '~/stores/viewer'
+import type { StoryGroup } from '~/types/story'
 
 const store = useViewerStore()
 const storyEl = ref<HTMLElement | null>(null)
@@ -62,6 +63,30 @@ function toggleAll() {
   expanded.value = next
 }
 
+// Per-file notes are worth their own lines only when they actually differ and
+// the list stays skimmable; otherwise the group falls back to filename chips.
+const FILE_NOTE_LIMIT = 12
+
+function sharedNote(g: StoryGroup): string {
+  const notes = g.items.map((i) => i.note.trim()).filter(Boolean)
+  if (notes.length !== g.items.length || notes.length < 2) return ''
+  return notes.every((n) => n === notes[0]) ? notes[0]! : ''
+}
+
+function showsFileNotes(g: StoryGroup): boolean {
+  if (!g.items.length || g.items.length > FILE_NOTE_LIMIT) return false
+  if (!g.items.some((i) => i.note.trim())) return false
+  return !sharedNote(g)
+}
+
+function revealFile(groupId: string, path: string) {
+  if (groupId !== currentGroup.value) selectGroup(groupId)
+  nextTick(() => {
+    const idx = items.value.findIndex((i) => i.path === path)
+    if (idx >= 0) focusCard(idx)
+  })
+}
+
 function selectGroup(id: string, { scrollStory = false } = {}) {
   currentGroup.value = id
   focusIndex.value = 0
@@ -103,8 +128,8 @@ function onKey(e: KeyboardEvent) {
   const focused = items.value[focusIndex.value]
   switch (e.key) {
     case 'Escape': e.preventDefault(); store.closeStory(); break
-    case ']': e.preventDefault(); stepGroup(1); break
-    case '[': e.preventDefault(); stepGroup(-1); break
+    case 'n': e.preventDefault(); stepGroup(1); break
+    case 'p': e.preventDefault(); stepGroup(-1); break
     case 'j': e.preventDefault(); focusCard(focusIndex.value + 1); break
     case 'k': e.preventDefault(); focusCard(focusIndex.value - 1); break
     case 'Enter': if (focused) { e.preventDefault(); toggle(focused.path) } break
@@ -172,7 +197,7 @@ onUnmounted(() => {
           <p v-if="store.story.summary">{{ store.story.summary }}</p>
         </header>
 
-        <button
+        <section
           v-for="(g, i) in groups"
           :key="g.id"
           class="chapter"
@@ -186,12 +211,24 @@ onUnmounted(() => {
             <span class="kind" :class="`kind-${g.kind}`">{{ g.kind }}</span>
           </div>
           <p v-if="g.summary" class="chapter-summary">{{ g.summary }}</p>
-          <div class="chapter-files">
+
+          <!-- One line per file with its own note, unless the notes say nothing
+               new (all identical / empty) or there are too many files to read. -->
+          <ul v-if="showsFileNotes(g)" class="file-notes">
+            <li v-for="it in g.items" :key="it.path">
+              <button class="file-note" :title="it.path" @click.stop="revealFile(g.id, it.path)">
+                <span class="fn-name">{{ it.path.split('/').pop() }}</span>
+                <span v-if="it.note" class="fn-note">{{ it.note }}</span>
+              </button>
+            </li>
+          </ul>
+          <div v-else class="chapter-files">
             <span v-for="it in g.items" :key="it.path" class="chip">
               {{ it.path.split('/').pop() }}
             </span>
+            <span v-if="sharedNote(g)" class="shared-note">{{ sharedNote(g) }}</span>
           </div>
-        </button>
+        </section>
 
         <p v-if="store.storyStatus === 'loading'" class="pending">Grouping the rest…</p>
       </div>
@@ -202,10 +239,10 @@ onUnmounted(() => {
             {{ activeIndex + 1 }}. {{ activeGroup.title }} · {{ items.length }} files
           </span>
           <div class="files-actions">
-            <button @click="stepGroup(-1)" :disabled="activeIndex <= 0" title="Previous group ([)">↑</button>
+            <button @click="stepGroup(-1)" :disabled="activeIndex <= 0" title="Previous group (p)">↑</button>
             <button
               :disabled="activeIndex >= groups.length - 1"
-              title="Next group (])"
+              title="Next group (n)"
               @click="stepGroup(1)"
             >↓</button>
             <button v-if="items.length" @click="toggleAll">
@@ -276,7 +313,8 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 380px) 1fr;
+  /* the narrative is the thing being read; the diff is the reference */
+  grid-template-columns: minmax(420px, 42%) minmax(0, 1fr);
 }
 
 /* --- left: the story --- */
@@ -284,11 +322,11 @@ onUnmounted(() => {
   border-right: 1px solid var(--border);
   overflow-y: auto;
   background: var(--bg-2);
-  padding: 12px 12px 40vh;
+  padding: 16px 18px 40vh;
 }
-.story-head { padding: 0 4px 10px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
-.story-head h1 { margin: 0; font-size: 15px; font-weight: 600; color: var(--fg); }
-.story-head p { margin: 4px 0 0; font-size: 12px; color: var(--fg-dim); line-height: 1.5; }
+.story-head { padding: 0 4px 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.story-head h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; color: var(--fg); }
+.story-head p { margin: 6px 0 0; font-size: 15px; color: var(--fg-dim); line-height: 1.55; }
 .chapter {
   display: block;
   width: 100%;
@@ -297,18 +335,18 @@ onUnmounted(() => {
   border: 1px solid transparent;
   border-left: 2px solid var(--border);
   border-radius: 0 6px 6px 0;
-  padding: 8px 10px;
-  margin-bottom: 4px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
   font: inherit;
   cursor: pointer;
 }
 .chapter:hover { background: var(--bg-3); }
 .chapter.on { background: var(--bg-3); border-left-color: var(--accent); }
 .chapter-head { display: flex; align-items: baseline; gap: 8px; }
-.num { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); min-width: 12px; }
-.chapter-head h2 { margin: 0; flex: 1; font-size: 13px; font-weight: 600; color: var(--fg); }
+.num { font-family: var(--mono); font-size: 13px; color: var(--fg-dim); min-width: 16px; }
+.chapter-head h2 { margin: 0; flex: 1; font-size: 16px; font-weight: 600; line-height: 1.35; color: var(--fg); }
 .kind {
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 1px 6px;
@@ -321,21 +359,52 @@ onUnmounted(() => {
 .kind-refactor { color: var(--purple); }
 .kind-test { color: var(--yellow); }
 .chapter-summary {
-  margin: 4px 0 0 20px;
-  font-size: 12px;
-  line-height: 1.5;
+  margin: 5px 0 0 24px;
+  font-size: 14px;
+  line-height: 1.55;
   color: var(--fg-dim);
 }
-.chapter-files { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 20px; }
+.file-notes { list-style: none; margin: 8px 0 0 24px; padding: 0; }
+.file-note {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font: inherit;
+  cursor: pointer;
+}
+.file-note:hover { background: var(--bg); }
+.fn-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #8d97a9;
+  flex: 0 0 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fn-note {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+}
+.chapter-files { display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px; margin: 8px 0 0 24px; }
 .chip {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: #7c8698;
   background: var(--bg);
   border-radius: 4px;
-  padding: 1px 5px;
+  padding: 1px 6px;
 }
-.pending { padding: 10px 4px; color: var(--fg-dim); font-size: 12px; }
+.shared-note { font-size: 13px; color: var(--fg-dim); }
+.pending { padding: 10px 4px; color: var(--fg-dim); font-size: 13px; }
 
 /* --- right: the files --- */
 .files-pane { display: flex; flex-direction: column; min-width: 0; }

@@ -27,7 +27,7 @@ const bindings: Array<{ keys: string[]; desc: string }> = [
   { keys: ['j'], desc: 'Next file (scroll diff)' },
   { keys: ['k'], desc: 'Previous file' },
   { keys: ['j', 'k'], desc: 'Story view: next / previous file' },
-  { keys: [']', '['], desc: 'Story view: next / previous group' },
+  { keys: ['n', 'p'], desc: 'Story view: next / previous group' },
   { keys: ['Enter'], desc: 'Story view: expand / collapse the focused file' },
   { keys: ['o'], desc: 'Story view: open the focused file in the classic diff' },
   { keys: ['Esc'], desc: 'Story view: back to classic diff' },
