@@ -315,11 +315,15 @@ onUnmounted(() => {
   display: grid;
   /* the narrative is the thing being read; the diff is the reference */
   grid-template-columns: minmax(420px, 42%) minmax(0, 1fr);
+  /* without an explicit 0-min row the panes size to their content and the
+     root's overflow:hidden eats the scroll instead of the panes */
+  grid-template-rows: minmax(0, 1fr);
 }
 
 /* --- left: the story --- */
 .story {
   border-right: 1px solid var(--border);
+  min-height: 0;
   overflow-y: auto;
   background: var(--bg-2);
   padding: 16px 18px 40vh;
@@ -407,7 +411,7 @@ onUnmounted(() => {
 .pending { padding: 10px 4px; color: var(--fg-dim); font-size: 13px; }
 
 /* --- right: the files --- */
-.files-pane { display: flex; flex-direction: column; min-width: 0; }
+.files-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .files-head {
   flex: 0 0 auto;
   display: flex;
