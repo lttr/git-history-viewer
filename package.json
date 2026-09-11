@@ -45,7 +45,7 @@
     "prepare": "nuxt prepare",
     "start": "node bin/gv.mjs",
     "prepublishOnly": "nuxt build",
-    "release": "changelogen --release --push --no-github --noAuthors && pnpm publish"
+    "release": "changelogen --release --push --no-github --noAuthors"
   },
   "dependencies": {
     "marked": "^18.0.4",
