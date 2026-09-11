@@ -65,6 +65,13 @@ const files = computed<CommitFile[]>(() => {
   return []
 })
 const tree = computed(() => buildTree(files.value))
+const stats = computed(() => store.fileStats)
+const total = computed(() => store.totalStats)
+const code = computed(() => store.codeStats)
+const hasTotals = computed(() => total.value.additions > 0 || total.value.deletions > 0)
+const codeDiffers = computed(
+  () => code.value.additions !== total.value.additions || code.value.deletions !== total.value.deletions,
+)
 const collapsed = ref(new Set<string>())
 
 function toggle(path: string) {
@@ -80,6 +87,17 @@ function toggle(path: string) {
     <div class="header">
       Files
       <span v-if="files.length" class="count">({{ files.length }})</span>
+      <div v-if="hasTotals" class="totals">
+        <span class="group">
+          <span class="add">+{{ total.additions }}</span>
+          <span class="del">&minus;{{ total.deletions }}</span>
+        </span>
+        <span v-if="codeDiffers" class="group" title="Excluding docs and config files (markdown, yaml, json, lockfiles…)">
+          <span class="tag">code</span>
+          <span class="add">+{{ code.additions }}</span>
+          <span class="del">&minus;{{ code.deletions }}</span>
+        </span>
+      </div>
     </div>
     <div ref="scrollEl" class="scroll">
       <template v-if="files.length">
@@ -89,6 +107,7 @@ function toggle(path: string) {
           :node="child"
           :depth="0"
           :collapsed="collapsed"
+          :stats="stats"
           :selected="store.selectedFile"
           @toggle="toggle"
           @select="(p: string) => store.selectFile(p)"
@@ -118,6 +137,19 @@ function toggle(path: string) {
   letter-spacing: 0.5px;
 }
 .count { margin-left: 6px; font-weight: 400; }
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.totals .tag { color: var(--fg-dim); margin-right: 5px; }
+.totals .add { color: var(--stat-add); }
+.totals .del { color: var(--stat-del); margin-left: 5px; }
 .scroll { flex: 1; overflow: auto; padding: 4px 0; }
 .empty { padding: 16px; color: var(--fg-dim); text-align: center; }
 </style>

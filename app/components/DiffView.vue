@@ -147,8 +147,13 @@ const mode = computed(() =>
 )
 
 const statusColor: Record<string, string> = {
-  A: '#bae67e', M: '#ffcc66', D: '#f28779',
-  R: '#73d0ff', C: '#d4bfff', '?': '#bae67e',
+  A: 'var(--status-add)', M: 'var(--status-mod)', D: 'var(--status-del)',
+  R: 'var(--status-ren)', C: 'var(--status-copy)', '?': 'var(--status-add)',
+}
+
+function statsFor(path: string) {
+  const s = store.fileStats[path]
+  return s && (s.additions || s.deletions) ? s : null
 }
 
 function toggleExpanded(path: string) {
@@ -641,6 +646,10 @@ watch(
               {{ f.status }}
             </span>
             <span class="filename">{{ f.oldPath && f.oldPath !== f.path ? `${f.oldPath} → ${f.path}` : f.path }}</span>
+            <span v-if="statsFor(f.path)" class="file-stats">
+              <span class="add">+{{ statsFor(f.path)!.additions }}</span>
+              <span class="del">&minus;{{ statsFor(f.path)!.deletions }}</span>
+            </span>
             <span v-if="commentsFor(f.path)" class="comment-badge" :title="`${commentsFor(f.path)!.count} comment thread(s)`">
               💬 {{ commentsFor(f.path)!.count }}
             </span>
@@ -880,6 +889,13 @@ watch(
   min-width: 14px;
   text-align: center;
 }
+.file-stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.file-stats .add { color: var(--stat-add); }
+.file-stats .del { color: var(--stat-del); margin-left: 5px; }
 .file-header .filename {
   font-family: var(--mono);
   font-size: 12px;

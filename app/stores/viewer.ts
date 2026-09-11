@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import type { CommentsDoc, CommentIndex, CommentThread, CommentAnchor, CommentSide, ThreadSource } from '~/types/comments'
 import { buildCommentIndex } from '~/types/comments'
 import type { ChangesetStory, StoryGroup } from '~/types/story'
+import { addStats, isCodePath, patchStats, type DiffStats } from '~/utils/diffStats'
 
 // Line numbers present in a unified-diff patch, per side. Used to detect
 // inline comments anchored to a line that isn't in the diff being viewed.
@@ -255,6 +256,27 @@ export const useViewerStore = defineStore('viewer', {
     storyStartedAt: 0,
   }),
   getters: {
+    // Added/removed line counts per file path, plus the changeset total —
+    // the "+12 −3" figures PR UIs show next to each file.
+    fileStats(): Record<string, DiffStats> {
+      const out: Record<string, DiffStats> = {}
+      for (const f of this.diffs?.files ?? []) out[f.path] = patchStats(f.patch)
+      return out
+    },
+    totalStats(): DiffStats {
+      let total: DiffStats = { additions: 0, deletions: 0 }
+      for (const s of Object.values(this.fileStats)) total = addStats(total, s)
+      return total
+    },
+    // Same counts with docs/config files (markdown, yaml, json, lockfiles…)
+    // left out, so the size of the actual code change stays readable.
+    codeStats(): DiffStats {
+      let total: DiffStats = { additions: 0, deletions: 0 }
+      for (const [path, s] of Object.entries(this.fileStats)) {
+        if (isCodePath(path)) total = addStats(total, s)
+      }
+      return total
+    },
     commentIndex(): CommentIndex {
       return buildCommentIndex(this.commentsDoc)
     },

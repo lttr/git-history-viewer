@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { DiffStats } from '~/utils/diffStats'
 
 interface TreeNode {
   name: string
@@ -13,6 +14,7 @@ const props = defineProps<{
   node: TreeNode
   depth: number
   collapsed: Set<string>
+  stats: Record<string, DiffStats>
   selected: string
 }>()
 
@@ -23,12 +25,13 @@ const emit = defineEmits<{
 }>()
 
 const statusColor: Record<string, string> = {
-  A: 'var(--green)', M: 'var(--yellow)', D: 'var(--red)',
-  R: 'var(--blue)', C: 'var(--purple)',
+  A: 'var(--status-add)', M: 'var(--status-mod)', D: 'var(--status-del)',
+  R: 'var(--status-ren)', C: 'var(--status-copy)', '?': 'var(--status-add)',
 }
 
 const isCollapsed = computed(() => props.collapsed.has(props.node.path))
 const isSelected = computed(() => props.node.isFile && props.node.file?.path === props.selected)
+const fileStats = computed(() => (props.node.file ? props.stats[props.node.file.path] : undefined))
 const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
 </script>
 
@@ -50,6 +53,10 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
       >
         ⤢
       </button>
+      <span v-if="fileStats && (fileStats.additions || fileStats.deletions)" class="stats">
+        <span class="add">+{{ fileStats.additions }}</span>
+        <span class="del">&minus;{{ fileStats.deletions }}</span>
+      </span>
       <span class="badge" :style="{ color: statusColor[node.file.status] || 'var(--fg-dim)' }">
         {{ node.file.status }}
       </span>
@@ -67,6 +74,7 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
         :node="child"
         :depth="depth + 1"
         :collapsed="collapsed"
+        :stats="stats"
         :selected="selected"
         @toggle="(p) => emit('toggle', p)"
         @select="(p) => emit('select', p)"
@@ -100,6 +108,13 @@ const pad = computed(() => ({ paddingLeft: `${props.depth * 12 + 8}px` }))
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.file-tree .row .stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.file-tree .row .stats .add { color: var(--stat-add); }
+.file-tree .row .stats .del { color: var(--stat-del); margin-left: 4px; }
 .file-tree .row .badge {
   font-family: var(--mono);
   font-size: 11px;

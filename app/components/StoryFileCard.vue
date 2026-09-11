@@ -9,6 +9,7 @@ import { DiffView, DiffModeEnum } from '@git-diff-view/vue'
 import '@git-diff-view/vue/styles/diff-view.css'
 import type { StoryItem } from '~/types/story'
 import type { FileDiff } from '~/stores/viewer'
+import { patchStats } from '~/utils/diffStats'
 
 const props = defineProps<{
   item: StoryItem
@@ -42,10 +43,9 @@ const stats = computed(() => {
   let del = 0
   const patch = props.file?.patch ?? ''
   if (patch) {
-    for (const line of patch.split('\n')) {
-      if (line.startsWith('+') && !line.startsWith('+++')) add++
-      else if (line.startsWith('-') && !line.startsWith('---')) del++
-    }
+    const s = patchStats(patch)
+    add = s.additions
+    del = s.deletions
   } else {
     for (const h of props.item.hunks) {
       for (const line of h.lines) {
@@ -81,8 +81,8 @@ const diffData = computed(() => {
 const renderDiff = computed(() => !!diffData.value && (props.expanded || !heavy.value))
 const firstLine = computed(() => props.item.hunks[0]?.newStart)
 const statusColor: Record<string, string> = {
-  A: '#bae67e', M: '#ffcc66', D: '#f28779',
-  R: '#73d0ff', C: '#d4bfff', '?': '#bae67e',
+  A: 'var(--status-add)', M: 'var(--status-mod)', D: 'var(--status-del)',
+  R: 'var(--status-ren)', C: 'var(--status-copy)', '?': 'var(--status-add)',
 }
 </script>
 
@@ -174,8 +174,8 @@ const statusColor: Record<string, string> = {
   text-align: left;
 }
 .stats { font-family: var(--mono); font-size: 11px; display: flex; gap: 6px; }
-.stats .add { color: var(--green); }
-.stats .del { color: var(--red); }
+.stats .add { color: var(--stat-add); }
+.stats .del { color: var(--stat-del); }
 .jump {
   background: transparent;
   border: none;

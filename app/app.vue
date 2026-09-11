@@ -17,6 +17,15 @@
   --yellow: #d29922;
   --blue: #6d97d8;
   --purple: #bc8cff;
+  /* Muted variants for line-count figures — informative, not attention-grabbing */
+  --stat-add: #6f9c77;
+  --stat-del: #b0766f;
+  /* Muted status-letter colors (A/M/D/R/C badges) */
+  --status-add: #7f9e74;
+  --status-mod: #b09a63;
+  --status-del: #ad7a72;
+  --status-ren: #7290b3;
+  --status-copy: #9a86b5;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
   /* Syntax-token palette (used to override @git-diff-view hardcoded dark theme) */
