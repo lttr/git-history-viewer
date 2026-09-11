@@ -1,6 +1,14 @@
 # Changelog
 
 
+## v0.2.5
+
+[compare changes](https://github.com/lttr/git-history-viewer/compare/v0.2.4...v0.2.5)
+
+### 🚀 Enhancements
+
+- **diff:** Show added/removed line counts ([7e7a610](https://github.com/lttr/git-history-viewer/commit/7e7a610))
+
 ## v0.2.4
 
 [compare changes](https://github.com/lttr/git-history-viewer/compare/v0.2.3...v0.2.4)
